@@ -16,10 +16,6 @@ type ToolResult = Record<string, any> | any[];
 const DEFAULT_PAGE_URL = "https://en1.savefrom.net/19wr/";
 const DEFAULT_SOURCE_URL = "https://vt.tiktok.com/ZSb5aNRof/";
 
-function sleep(milliseconds: number): Promise<void> {
-  return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
-}
-
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum);
 }
@@ -296,33 +292,66 @@ async function main(): Promise<void> {
     await client.tool("hook_crypto_all", { hookId: `${runId}-crypto` });
     await client.tool("timeline_recorder", { action: "clear", limit: 100 });
     await client.tool("navigate", { url: pageUrl, waitMs: 1_500 });
+    const inputReady = await client.tool("wait_for_selector", {
+      selector: inputSelector,
+      timeoutMs: Math.max(waitMs, 10_000),
+      pollMs: 100,
+      visible: true,
+    });
     await client.tool("type_text", { selector: inputSelector, text: sourceUrl, clear: true });
+    const submitReady = await client.tool("wait_for_selector", {
+      selector: submitSelector,
+      timeoutMs: Math.max(waitMs, 10_000),
+      pollMs: 100,
+      visible: true,
+    });
     await client.tool("click_selector", { selector: submitSelector });
 
-    const deadline = Date.now() + waitMs;
-    let stoppedBecause = "timeout";
-    while (Date.now() < deadline) {
-      await sleep(Math.min(750, Math.max(100, deadline - Date.now())));
-      const snapshot = await bestEffort(() => client.tool("page_snapshot", { maxChars: 20_000 }), {});
-      const network = await bestEffort(() => client.tool("get_network", { limit: 300 }), {});
-      const text = String((snapshot as any)?.text ?? "");
-      const requests = Array.isArray((network as any)?.requests) ? (network as any).requests : [];
-      const captcha = isCaptchaText(text) || requests.some((request: any) =>
-        isCaptchaUrl(String(request?.url ?? ""))
-        || ((request?.status === 403 || request?.status === 422) && /savefrom|worker\./i.test(String(request?.url ?? ""))));
-      const completedApi = requests.some((request: any) =>
-        request?.status !== undefined && request?.status >= 200 && request?.status < 300 && isSaveFromApiUrl(String(request?.url ?? "")) &&
-        (request?.type === "XHR" || request?.type === "Fetch"));
-      if (captcha) {
-        stoppedBecause = "captcha_detected";
-        break;
-      }
-      if (completedApi) {
-        stoppedBecause = "savefrom_api_completed";
-        break;
-      }
+    const actionStartedAt = Date.now();
+    const initialNetworkWait = await client.tool("wait_for_network", {
+      urlPathContains: "savefrom.php",
+      requireResponse: true,
+      requireFinished: true,
+      timeoutMs: waitMs,
+      pollMs: 100,
+    });
+    let workerNetworkWait: ToolResult = {};
+    let captchaNetworkWait: ToolResult = {};
+    let networkWait: ToolResult = initialNetworkWait;
+    const initialRequest = (initialNetworkWait as any)?.request;
+    if ((initialNetworkWait as any)?.matched && !/worker\.savefrom\.net/i.test(String(initialRequest?.url ?? ""))) {
+      const remainingMs = Math.max(0, waitMs - (Date.now() - actionStartedAt));
+      workerNetworkWait = await client.tool("wait_for_network", {
+        urlContains: "worker.savefrom.net",
+        urlPathContains: "savefrom.php",
+        requireResponse: true,
+        requireFinished: true,
+        timeoutMs: remainingMs,
+        pollMs: 100,
+      });
+      if ((workerNetworkWait as any)?.matched) networkWait = workerNetworkWait;
     }
+    const postActionSnapshot = await bestEffort(() => client.tool("page_snapshot", { maxChars: 20_000 }), {});
+    const matchedRequest = (networkWait as any)?.request;
+    const matchedUrl = String(matchedRequest?.url ?? "");
+    const matchedStatus = matchedRequest?.status;
+    if ((matchedStatus === 403 || matchedStatus === 422) && /worker\.savefrom\.net/i.test(matchedUrl)) {
+      const remainingMs = Math.max(0, waitMs - (Date.now() - actionStartedAt));
+      captchaNetworkWait = await client.tool("wait_for_network", {
+        urlPathContains: "/api/captcha",
+        requireResponse: true,
+        requireFinished: true,
+        timeoutMs: Math.min(3_000, remainingMs),
+        pollMs: 100,
+      });
+    }
+    const actionStoppedBecause = isCaptchaText(String((postActionSnapshot as any)?.text ?? ""))
+      || matchedStatus === 403
+      || matchedStatus === 422
+      ? "captcha_detected"
+      : (networkWait as any)?.matched ? "savefrom_api_completed" : "timeout";
     const evidence = await collectEvidence(client, sourceUrl, maxBodyChars);
+    const stoppedBecause = (evidence.captcha as any)?.detected ? "captcha_detected" : actionStoppedBecause;
     artifact = {
       tool: "reverse-engineering-mcp",
       workflow: "savefrom-e2e",
@@ -331,6 +360,9 @@ async function main(): Promise<void> {
       sourceUrl,
       selectors: { input: inputSelector, submit: submitSelector },
       waitMs,
+      selectorWaits: { input: inputReady, submit: submitReady },
+      networkWait: { ...networkWait as any, matchedUrl, matchedStatus },
+      networkWaits: { initial: initialNetworkWait, worker: workerNetworkWait, captcha: captchaNetworkWait },
       stoppedBecause,
       capturedAt: new Date().toISOString(),
       ...evidence,

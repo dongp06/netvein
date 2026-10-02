@@ -113,6 +113,23 @@ export function createServer(session: CdpSession): McpServer {
   );
 
   server.registerTool(
+    "wait_for_selector",
+    {
+      title: "Wait for a page selector",
+      description: "Poll the attached page until a CSS selector exists and is visible (or until the bounded timeout expires).",
+      inputSchema: {
+        selector: z.string().min(1),
+        timeoutMs: z.number().int().min(0).max(120000).default(10000),
+        pollMs: z.number().int().min(25).max(2000).default(100),
+        visible: z.boolean().default(true),
+      },
+    },
+    safeTool(async (args: { selector: string; timeoutMs: number; pollMs: number; visible: boolean }) =>
+      session.waitForSelector(args.selector, args.timeoutMs, args.pollMs, args.visible),
+    ),
+  );
+
+  server.registerTool(
     "click_selector",
     {
       title: "Click a page element",
@@ -360,6 +377,28 @@ export function createServer(session: CdpSession): McpServer {
       annotations: { readOnlyHint: true },
     },
     safeTool(async (args: { urlContains?: string; type?: string; status?: number; limit: number }) => session.getNetwork(args)),
+  );
+
+  server.registerTool(
+    "wait_for_network",
+    {
+      title: "Wait for a network request",
+      description: "Poll captured network records until a URL/type/status filter matches or the bounded timeout expires.",
+      inputSchema: {
+        urlContains: z.string().optional(),
+        urlPathContains: z.string().optional().describe("Substring matched against URL pathname, excluding query parameters."),
+        urlRegex: z.string().optional(),
+        type: z.string().optional(),
+        status: z.number().int().optional(),
+        requireResponse: z.boolean().default(false),
+        requireFinished: z.boolean().default(false),
+        timeoutMs: z.number().int().min(0).max(120000).default(10000),
+        pollMs: z.number().int().min(25).max(2000).default(100),
+      },
+    },
+    safeTool(async (args: { urlContains?: string; urlPathContains?: string; urlRegex?: string; type?: string; status?: number; requireResponse: boolean; requireFinished: boolean; timeoutMs: number; pollMs: number }) =>
+      session.waitForNetwork(args),
+    ),
   );
 
   server.registerTool(

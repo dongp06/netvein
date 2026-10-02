@@ -39,6 +39,18 @@ export interface NetworkQuery {
   limit?: number;
 }
 
+export interface NetworkWaitQuery {
+  urlContains?: string;
+  urlPathContains?: string;
+  urlRegex?: string;
+  type?: string;
+  status?: number;
+  requireResponse?: boolean;
+  requireFinished?: boolean;
+  timeoutMs?: number;
+  pollMs?: number;
+}
+
 export interface HookOptions {
   hookId?: string;
   kind: HookRecord["kind"];
@@ -72,6 +84,10 @@ interface BundleScriptSnapshot {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function truncate(value: string | undefined, max = MAX_STORED_TEXT): string | undefined {
@@ -753,6 +769,61 @@ export class CdpSession {
     return result.result?.value ?? { error: result.exceptionDetails?.text ?? "Snapshot failed" };
   }
 
+  async waitForSelector(selector: string, timeoutMs = 10_000, pollMs = 100, visible = true): Promise<Record<string, unknown>> {
+    const client = this.requireClient();
+    const startedAt = Date.now();
+    const timeout = Math.min(Math.max(timeoutMs, 0), 120_000);
+    const interval = Math.min(Math.max(pollMs, 25), 2_000);
+    let lastError: string | undefined;
+    while (Date.now() - startedAt <= timeout) {
+      try {
+        const result = await client.Runtime.evaluate({
+          expression: `(() => {
+            try {
+              const element = document.querySelector(${JSON.stringify(selector)});
+              if (!element) return { found: false };
+              const style = getComputedStyle(element);
+              const isVisible = Boolean(element.getClientRects().length)
+                && style.display !== "none"
+                && style.visibility !== "hidden"
+                && style.opacity !== "0";
+              return {
+                found: true,
+                visible: isVisible,
+                tag: element.tagName?.toLowerCase(),
+                id: element.id || undefined,
+                text: (element.innerText || element.value || "").trim().slice(0, 300),
+              };
+            } catch (error) {
+              return { found: false, error: String(error) };
+            }
+          })()`,
+          returnByValue: true,
+        });
+        const value = result.result?.value;
+        if (value?.found && (!visible || value.visible)) {
+          const output = { selector, ...value, waitedMs: Date.now() - startedAt };
+          this.addTimeline("browser", "selector-found", `selector found: ${selector}`, output);
+          return output;
+        }
+        lastError = value?.error;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+      }
+      if (Date.now() - startedAt >= timeout) break;
+      await sleep(Math.min(interval, Math.max(1, timeout - (Date.now() - startedAt))));
+    }
+    const output = {
+      selector,
+      found: false,
+      timedOut: true,
+      waitedMs: Date.now() - startedAt,
+      error: lastError,
+    };
+    this.addTimeline("browser", "selector-timeout", `selector timeout: ${selector}`, output);
+    return output;
+  }
+
   async clickSelector(selector: string): Promise<Record<string, unknown>> {
     const client = this.requireClient();
     const expression = `(() => {
@@ -823,27 +894,41 @@ export class CdpSession {
     const scripts = this.listScripts(undefined, options.maxScripts ?? 100);
     const needle = options.caseSensitive ? query : query.toLowerCase();
     const matches: Array<Record<string, unknown>> = [];
+    const skippedScripts: Array<Record<string, unknown>> = [];
     for (const script of scripts) {
-      const result = await this.getScriptSource(script.scriptId, 2_000_000);
-      const source = String(result.source ?? "");
-      const haystack = options.caseSensitive ? source : source.toLowerCase();
-      let start = 0;
-      while (matches.length < (options.maxMatches ?? 100)) {
-        const index = haystack.indexOf(needle, start);
-        if (index < 0) break;
-        const line = source.slice(0, index).split("\n").length;
-        matches.push({
+      try {
+        const result = await this.getScriptSource(script.scriptId, 2_000_000);
+        const source = String(result.source ?? "");
+        const haystack = options.caseSensitive ? source : source.toLowerCase();
+        let start = 0;
+        while (matches.length < (options.maxMatches ?? 100)) {
+          const index = haystack.indexOf(needle, start);
+          if (index < 0) break;
+          const line = source.slice(0, index).split("\n").length;
+          matches.push({
+            scriptId: script.scriptId,
+            url: script.url,
+            line,
+            column: index - source.lastIndexOf("\n", index - 1) - 1,
+            snippet: source.slice(Math.max(0, index - 140), Math.min(source.length, index + query.length + 220)),
+          });
+          start = index + Math.max(needle.length, 1);
+        }
+      } catch (error) {
+        skippedScripts.push({
           scriptId: script.scriptId,
           url: script.url,
-          line,
-          column: index - source.lastIndexOf("\n", index - 1) - 1,
-          snippet: source.slice(Math.max(0, index - 140), Math.min(source.length, index + query.length + 220)),
+          error: error instanceof Error ? error.message : String(error),
         });
-        start = index + Math.max(needle.length, 1);
       }
       if (matches.length >= (options.maxMatches ?? 100)) break;
     }
-    return { query, matches, truncated: matches.length >= (options.maxMatches ?? 100) };
+    return {
+      query,
+      matches,
+      skippedScripts: skippedScripts.slice(0, 100),
+      truncated: matches.length >= (options.maxMatches ?? 100),
+    };
   }
 
   async smartBreakpoint(input: {
@@ -1089,6 +1174,51 @@ export class CdpSession {
       .filter((record) => query.status === undefined || record.status === query.status)
       .slice(-limit);
     return { requests, websocketFrames: this.socketFrames.slice(-limit) };
+  }
+
+  async waitForNetwork(query: NetworkWaitQuery = {}): Promise<Record<string, unknown>> {
+    const startedAt = Date.now();
+    const timeout = Math.min(Math.max(query.timeoutMs ?? 10_000, 0), 120_000);
+    const interval = Math.min(Math.max(query.pollMs ?? 100, 25), 2_000);
+    let expression: RegExp | undefined;
+    if (query.urlRegex) {
+      try {
+        expression = new RegExp(query.urlRegex);
+      } catch (error) {
+        throw new Error(`Invalid network URL regex: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    const matches = (): NetworkRecord[] => this.getNetwork({ limit: MAX_NETWORK_RECORDS }).requests.filter((record) => {
+      if (query.urlContains && !record.url.includes(query.urlContains)) return false;
+      if (query.urlPathContains) {
+        let pathname: string;
+        try { pathname = new URL(record.url).pathname; } catch (_) { pathname = record.url; }
+        if (!pathname.includes(query.urlPathContains)) return false;
+      }
+      if (expression) {
+        expression.lastIndex = 0;
+        if (!expression.test(record.url)) return false;
+      }
+      if (query.type && record.type !== query.type) return false;
+      if (query.status !== undefined && record.status !== query.status) return false;
+      if (query.requireResponse && record.status === undefined) return false;
+      if (query.requireFinished && record.finishedAt === undefined) return false;
+      return true;
+    });
+    while (Date.now() - startedAt <= timeout) {
+      const records = matches();
+      const record = records.at(-1);
+      if (record) {
+        const output = { matched: true, request: record, query, waitedMs: Date.now() - startedAt };
+        this.addTimeline("network", "wait-matched", `network matched: ${record.method} ${record.url}`.slice(0, 500), output);
+        return output;
+      }
+      if (Date.now() - startedAt >= timeout) break;
+      await sleep(Math.min(interval, Math.max(1, timeout - (Date.now() - startedAt))));
+    }
+    const output = { matched: false, waitedMs: Date.now() - startedAt, query };
+    this.addTimeline("network", "wait-timeout", "network wait timed out", output);
+    return output;
   }
 
   async getNetworkBody(requestId: string, maxChars = 100_000) {

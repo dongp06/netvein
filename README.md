@@ -101,7 +101,7 @@ After attaching, all debugger, hook and network tools operate on that same tab.
 
 ### Browser and runtime
 
-`browser_targets` · `browser_attach` · `browser_detach` · `browser_status` · `navigate` · `page_snapshot` · `click_selector` · `type_text` · `evaluate`
+`browser_targets` · `browser_attach` · `browser_detach` · `browser_status` · `navigate` · `page_snapshot` · `wait_for_selector` · `wait_for_network` · `click_selector` · `type_text` · `evaluate`
 
 ### Source intelligence
 
@@ -114,6 +114,8 @@ After attaching, all debugger, hook and network tools operate on that same tab.
 ### Network and reconstruction
 
 `get_network` · `get_network_body` · `trace_request_origin` · `replay_and_verify` · `openapi_generator`
+
+`wait_for_network` can match the raw URL (`urlContains`/`urlRegex`) or only the pathname (`urlPathContains`), and can require a response or completed loading (`requireResponse`/`requireFinished`).
 
 ### Instrumentation and evidence
 
