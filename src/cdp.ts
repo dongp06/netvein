@@ -1264,13 +1264,20 @@ export class CdpSession {
       }
       frames.push(mapped);
     }
+    const isInstrumentationFrame = (frame: Record<string, unknown>): boolean =>
+      /reverse-engineering-mcp-(?:hook|taint)-/i.test(String(frame.url ?? ""));
+    const applicationFrames = frames.filter((frame) => !isInstrumentationFrame(frame));
     return {
       request: record,
       initiatorType: initiator?.type,
       initiatorUrl: initiator?.url,
       stack: frames,
-      origin: frames[0] ?? null,
-      note: frames.length ? "Origin inferred from Network.requestWillBeSent initiator stack." : "Chrome did not provide a JavaScript initiator stack for this request.",
+      origin: applicationFrames[0] ?? frames[0] ?? null,
+      leafOrigin: applicationFrames.at(-1) ?? frames.at(-1) ?? null,
+      instrumentationFrames: frames.length - applicationFrames.length,
+      note: frames.length
+        ? "Origin uses the first non-MCP frame; leafOrigin is the deepest application frame in Chrome's initiator stack."
+        : "Chrome did not provide a JavaScript initiator stack for this request.",
     };
   }
 

@@ -39,7 +39,7 @@ The core stays site-agnostic. Site-specific experiments belong in external workf
 | Debugger | Set/remove conditional breakpoints, inspect call frames, evaluate locals and step execution |
 | Network | Capture requests, responses, initiators, bodies, WebSocket frames and generate an OpenAPI draft |
 | Hooks | Observe fetch, XHR, WebSocket and Web Crypto calls; capture bounded response bodies |
-| Tracing | Trace request origin, dynamic sink-oriented taint tracking and browser-vs-Node environment differences |
+| Tracing | Trace request origin (with MCP-wrapper filtering), dynamic sink-oriented taint tracking and browser-vs-Node environment differences |
 | Reconstruction | Replay a captured request in the attached browser context and compare status/body bytes |
 | Evidence | Unified timeline, console buffer, bundle snapshots and bundle diffs |
 
