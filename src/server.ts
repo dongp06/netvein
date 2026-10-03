@@ -1,6 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { CdpSession } from "./cdp.js";
+import { SERVER_INSTRUCTIONS } from "./instructions.js";
+import { registerResources } from "./resources.js";
+import { registerPrompts } from "./prompts.js";
 
 type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -35,16 +38,52 @@ function safeTool<TArgs>(handler: (args: TArgs) => Promise<unknown>) {
 }
 
 export function createServer(session: CdpSession): McpServer {
-  const server = new McpServer({
-    name: "reverse-engineering-mcp",
-    version: "0.1.0",
-  });
+  const server = new McpServer(
+    {
+      name: "reverse-engineering-mcp",
+      version: "0.2.0",
+    },
+    {
+      instructions: SERVER_INSTRUCTIONS,
+      capabilities: {
+        resources: {},
+        prompts: {},
+        logging: {},
+      },
+    },
+  );
+
+  registerResources(server, session);
+  registerPrompts(server);
+
+  server.registerTool(
+    "browser_launch",
+    {
+      title: "Launch browser with CDP remote debugging",
+      description:
+        "Automatically find and launch Chrome, Edge, or Brave with remote debugging flags enabled (--remote-debugging-port=9222), or confirm if already running.",
+      inputSchema: {
+        targetUrl: z.string().optional().describe("Initial URL to open upon browser launch."),
+        headless: z.boolean().default(false).describe("Whether to launch browser in headless mode."),
+        userDataDir: z.string().optional().describe("Custom user data profile directory."),
+        executablePath: z.string().optional().describe("Explicit path to the Chrome/Edge/Brave browser binary."),
+      },
+    },
+    safeTool(
+      async (args: {
+        targetUrl?: string;
+        headless?: boolean;
+        userDataDir?: string;
+        executablePath?: string;
+      }) => session.launchBrowser(args),
+    ),
+  );
 
   server.registerTool(
     "browser_targets",
     {
       title: "List Chrome targets",
-      description: "List inspectable Chrome tabs/targets exposed by the local CDP endpoint.",
+      description: "List inspectable Chrome tabs/targets exposed by the local CDP endpoint. Automatically launches browser if not running.",
       annotations: { readOnlyHint: true },
     },
     safeTool(async () => session.listTargets()),
@@ -682,5 +721,646 @@ export function createServer(session: CdpSession): McpServer {
     safeTool(async () => session.clearLogs()),
   );
 
+  // --- BROWSER AUTOMATION & INTERACTION TOOLS ---
+
+  server.registerTool(
+    "screenshot",
+    {
+      title: "Take a screenshot",
+      description: "Capture a screenshot of the viewport, full page, or a specific selector element as base64 image.",
+      inputSchema: {
+        selector: z.string().optional().describe("CSS selector of an element to screenshot."),
+        fullPage: z.boolean().default(false).describe("Capture the entire scrollable page."),
+        format: z.enum(["png", "jpeg"]).default("png"),
+        quality: z.number().int().min(0).max(100).optional().describe("Quality for jpeg format (0-100)."),
+      },
+    },
+    safeTool(async (args: { selector?: string; fullPage: boolean; format: "png" | "jpeg"; quality?: number }) =>
+      session.screenshot(args),
+    ),
+  );
+
+  server.registerTool(
+    "press_key",
+    {
+      title: "Press a keyboard key",
+      description: "Send keyboard events (Enter, Escape, Tab, Backspace, Arrow keys, or shortcuts with Alt/Control/Shift).",
+      inputSchema: {
+        key: z.string().min(1).describe("Key name like Enter, Tab, Escape, Backspace, ArrowDown, or character text."),
+        modifiers: z.array(z.enum(["Alt", "Control", "Meta", "Shift"])).optional().describe("Modifier keys to hold."),
+      },
+    },
+    safeTool(async (args: { key: string; modifiers?: Array<"Alt" | "Control" | "Meta" | "Shift"> }) =>
+      session.pressKey(args.key, args.modifiers),
+    ),
+  );
+
+  server.registerTool(
+    "hover_selector",
+    {
+      title: "Hover mouse over selector",
+      description: "Scroll an element into view and trigger hover/mouseMoved events over its center coordinates.",
+      inputSchema: { selector: z.string().min(1) },
+    },
+    safeTool(async (args: { selector: string }) => session.hoverSelector(args.selector)),
+  );
+
+  server.registerTool(
+    "scroll_page",
+    {
+      title: "Scroll page or element",
+      description: "Scroll the viewport by x/y pixels or scroll a specific selector element into view.",
+      inputSchema: {
+        x: z.number().int().default(0),
+        y: z.number().int().default(0),
+        selector: z.string().optional().describe("CSS selector of element to scroll into view."),
+      },
+    },
+    safeTool(async (args: { x: number; y: number; selector?: string }) => session.scrollPage(args)),
+  );
+
+  server.registerTool(
+    "select_option",
+    {
+      title: "Select dropdown option",
+      description: "Select an option in a <select> element by value or text and trigger change/input events.",
+      inputSchema: {
+        selector: z.string().min(1).describe("CSS selector of the <select> element."),
+        value: z.string().min(1).describe("Option value or text to select."),
+      },
+    },
+    safeTool(async (args: { selector: string; value: string }) => session.selectOption(args.selector, args.value)),
+  );
+
+  server.registerTool(
+    "reload_page",
+    {
+      title: "Reload page",
+      description: "Reload the current page with optional cache bypass and script to evaluate on load.",
+      inputSchema: {
+        ignoreCache: z.boolean().default(true),
+        scriptToEvaluateOnLoad: z.string().optional(),
+      },
+    },
+    safeTool(async (args: { ignoreCache: boolean; scriptToEvaluateOnLoad?: string }) =>
+      session.reloadPage(args.ignoreCache, args.scriptToEvaluateOnLoad),
+    ),
+  );
+
+  server.registerTool(
+    "set_viewport",
+    {
+      title: "Set viewport metrics",
+      description: "Emulate device screen dimensions, mobile emulation, and device scale factor.",
+      inputSchema: {
+        width: z.number().int().min(100).max(7680),
+        height: z.number().int().min(100).max(4320),
+        deviceScaleFactor: z.number().min(0.5).max(4).default(1),
+        mobile: z.boolean().default(false),
+      },
+    },
+    safeTool(async (args: { width: number; height: number; deviceScaleFactor: number; mobile: boolean }) =>
+      session.setViewport(args),
+    ),
+  );
+
+  server.registerTool(
+    "set_user_agent",
+    {
+      title: "Override User-Agent",
+      description: "Set custom User-Agent, Accept-Language, and Platform headers for browser requests.",
+      inputSchema: {
+        userAgent: z.string().min(1),
+        acceptLanguage: z.string().optional(),
+        platform: z.string().optional(),
+      },
+    },
+    safeTool(async (args: { userAgent: string; acceptLanguage?: string; platform?: string }) =>
+      session.setUserAgent(args),
+    ),
+  );
+
+  server.registerTool(
+    "get_cookies",
+    {
+      title: "Get browser cookies",
+      description: "Retrieve cookies for the current page or specified URLs, including name, value, domain, path, and security flags.",
+      inputSchema: {
+        urls: z.array(z.string()).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async (args: { urls?: string[] }) => session.getCookies(args.urls)),
+  );
+
+  server.registerTool(
+    "set_cookie",
+    {
+      title: "Set browser cookie",
+      description: "Add or overwrite a browser cookie with custom security attributes and expiration.",
+      inputSchema: {
+        name: z.string().min(1),
+        value: z.string(),
+        domain: z.string().optional(),
+        path: z.string().default("/"),
+        secure: z.boolean().optional(),
+        httpOnly: z.boolean().optional(),
+        sameSite: z.enum(["Strict", "Lax", "None"]).optional(),
+        expires: z.number().optional(),
+      },
+    },
+    safeTool(async (args: {
+      name: string;
+      value: string;
+      domain?: string;
+      path: string;
+      secure?: boolean;
+      httpOnly?: boolean;
+      sameSite?: "Strict" | "Lax" | "None";
+      expires?: number;
+    }) => session.setCookie(args)),
+  );
+
+  server.registerTool(
+    "delete_cookies",
+    {
+      title: "Delete browser cookies",
+      description: "Delete a cookie by name, URL, or domain.",
+      inputSchema: {
+        name: z.string().min(1),
+        url: z.string().optional(),
+        domain: z.string().optional(),
+      },
+    },
+    safeTool(async (args: { name: string; url?: string; domain?: string }) =>
+      session.deleteCookies(args.name, args.url, args.domain),
+    ),
+  );
+
+  server.registerTool(
+    "get_storage",
+    {
+      title: "Get web storage",
+      description: "Read all key-value entries from localStorage and/or sessionStorage for the current origin.",
+      inputSchema: {
+        type: z.enum(["local", "session", "both"]).default("both"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async (args: { type: "local" | "session" | "both" }) => session.getStorage(args.type)),
+  );
+
+  server.registerTool(
+    "set_storage",
+    {
+      title: "Set web storage item",
+      description: "Set a key-value item in localStorage or sessionStorage for the current origin.",
+      inputSchema: {
+        type: z.enum(["local", "session"]).default("local"),
+        key: z.string().min(1),
+        value: z.string(),
+      },
+    },
+    safeTool(async (args: { type: "local" | "session"; key: string; value: string }) =>
+      session.setStorage(args.type, args.key, args.value),
+    ),
+  );
+
+  server.registerTool(
+    "clear_storage",
+    {
+      title: "Clear web storage or cookies",
+      description: "Clear localStorage, sessionStorage, cookies, or all storage data for the current origin.",
+      inputSchema: {
+        type: z.enum(["local", "session", "cookies", "all"]).default("all"),
+      },
+    },
+    safeTool(async (args: { type: "local" | "session" | "cookies" | "all" }) => session.clearStorage(args.type)),
+  );
+
+  // --- BREAKPOINTS & DEBUGGER EXTENSIONS ---
+
+  server.registerTool(
+    "set_dom_breakpoint",
+    {
+      title: "Set DOM breakpoint",
+      description: "Pause JavaScript execution when a DOM element's subtree is modified, attributes change, or the node is removed.",
+      inputSchema: {
+        selector: z.string().min(1).describe("CSS selector of target element."),
+        type: z.enum(["subtree-modified", "attribute-modified", "node-removed"]).default("subtree-modified"),
+      },
+    },
+    safeTool(async (args: { selector: string; type: "subtree-modified" | "attribute-modified" | "node-removed" }) =>
+      session.setDomBreakpoint(args.selector, args.type),
+    ),
+  );
+
+  server.registerTool(
+    "remove_dom_breakpoint",
+    {
+      title: "Remove DOM breakpoint",
+      description: "Remove an active DOM breakpoint by its breakpointId.",
+      inputSchema: { breakpointId: z.string().min(1) },
+    },
+    safeTool(async (args: { breakpointId: string }) => session.removeDomBreakpoint(args.breakpointId)),
+  );
+
+  server.registerTool(
+    "set_event_breakpoint",
+    {
+      title: "Set event listener breakpoint",
+      description: "Pause JavaScript at the start of event listeners (e.g. click, submit, keydown, setTimeout, setInterval, WebSocket).",
+      inputSchema: {
+        eventName: z.string().min(1).describe("Event name, e.g. click, submit, keydown, setTimeout, setInterval, etc."),
+        targetName: z.string().optional(),
+      },
+    },
+    safeTool(async (args: { eventName: string; targetName?: string }) =>
+      session.setEventBreakpoint(args.eventName, args.targetName),
+    ),
+  );
+
+  server.registerTool(
+    "remove_event_breakpoint",
+    {
+      title: "Remove event listener breakpoint",
+      description: "Remove an event listener breakpoint.",
+      inputSchema: {
+        eventName: z.string().min(1),
+        targetName: z.string().optional(),
+      },
+    },
+    safeTool(async (args: { eventName: string; targetName?: string }) =>
+      session.removeEventBreakpoint(args.eventName, args.targetName),
+    ),
+  );
+
+  server.registerTool(
+    "set_xhr_breakpoint",
+    {
+      title: "Set XHR/fetch breakpoint",
+      description: "Pause JavaScript immediately before an XMLHttpRequest or fetch() call containing the specified URL pattern is dispatched.",
+      inputSchema: {
+        url: z.string().min(1).describe("URL substring or pattern to match."),
+      },
+    },
+    safeTool(async (args: { url: string }) => session.setXhrBreakpoint(args.url)),
+  );
+
+  server.registerTool(
+    "remove_xhr_breakpoint",
+    {
+      title: "Remove XHR/fetch breakpoint",
+      description: "Remove an active XHR/fetch breakpoint.",
+      inputSchema: { url: z.string().min(1) },
+    },
+    safeTool(async (args: { url: string }) => session.removeXhrBreakpoint(args.url)),
+  );
+
+  server.registerTool(
+    "list_all_breakpoints",
+    {
+      title: "List all active breakpoints",
+      description: "Return all active JavaScript, DOM, event listener, and XHR breakpoints.",
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async () => session.listAllBreakpoints()),
+  );
+
+  server.registerTool(
+    "get_call_frame_scope",
+    {
+      title: "Get call frame scope variables",
+      description: "Inspect local, closure, script, and global variables for a paused debugger call frame with expanded properties.",
+      inputSchema: {
+        callFrameId: z.string().min(1),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async (args: { callFrameId: string }) => session.getCallFrameScope(args.callFrameId)),
+  );
+
+  server.registerTool(
+    "set_variable_value",
+    {
+      title: "Modify variable in call frame",
+      description: "Mutate the value of a local or closure variable inside a paused debugger call frame.",
+      inputSchema: {
+        callFrameId: z.string().min(1),
+        scopeNumber: z.number().int().min(0).describe("Zero-based index of scope in scopeChain (0 is usually local)."),
+        variableName: z.string().min(1),
+        value: z.unknown().describe("New value for variable (string, number, boolean, object)."),
+      },
+    },
+    safeTool(async (args: { callFrameId: string; scopeNumber: number; variableName: string; value: unknown }) =>
+      session.setVariableValue(args),
+    ),
+  );
+
+  server.registerTool(
+    "restart_frame",
+    {
+      title: "Restart call frame execution",
+      description: "Restart execution of the current function call frame from its beginning without reloading the page.",
+      inputSchema: { callFrameId: z.string().min(1) },
+    },
+    safeTool(async (args: { callFrameId: string }) => session.restartFrame(args.callFrameId)),
+  );
+
+  // --- NETWORK SEARCH, WEBSOCKET & TRAFFIC TAMPERING ---
+
+  server.registerTool(
+    "search_network",
+    {
+      title: "Search network requests and bodies",
+      description: "Search across URLs, request headers, POST bodies, and response headers for sensitive tokens, endpoints, or parameters.",
+      inputSchema: {
+        query: z.string().min(1),
+        isRegex: z.boolean().default(false),
+        caseSensitive: z.boolean().default(false),
+        limit: z.number().int().min(1).max(500).default(50),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async (args: { query: string; isRegex: boolean; caseSensitive: boolean; limit: number }) =>
+      session.searchNetwork(args),
+    ),
+  );
+
+  server.registerTool(
+    "get_websocket_messages",
+    {
+      title: "Get WebSocket messages",
+      description: "Filter and read captured WebSocket messages (sent/received) with payloads and timestamps.",
+      inputSchema: {
+        requestId: z.string().optional(),
+        urlContains: z.string().optional(),
+        direction: z.enum(["sent", "received", "both"]).default("both"),
+        query: z.string().optional().describe("Filter payload by substring."),
+        limit: z.number().int().min(1).max(1000).default(100),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async (args: {
+      requestId?: string;
+      urlContains?: string;
+      direction: "sent" | "received" | "both";
+      query?: string;
+      limit: number;
+    }) => session.getWebSocketMessages(args)),
+  );
+
+  server.registerTool(
+    "set_request_interception",
+    {
+      title: "Intercept, mock, or modify network requests",
+      description: "Intercept HTTP requests matching a URL pattern to block, mock with custom response, or tamper with headers/POST body before sending.",
+      inputSchema: {
+        urlPattern: z.string().min(1).describe("URL wildcard pattern (e.g. *api/v1/auth*, *.png, https://target.com/*)."),
+        action: z.enum(["block", "mock", "modify", "inspect"]).default("inspect"),
+        resourceType: z.string().optional(),
+        mockStatus: z.number().int().optional().describe("Status code for mock action (e.g. 200, 403)."),
+        mockHeaders: z.record(z.string()).optional().describe("Response headers for mock action."),
+        mockBody: z.string().optional().describe("Response body string for mock action."),
+        modifyHeaders: z.record(z.string()).optional().describe("Request headers to override for modify action."),
+        modifyPostData: z.string().optional().describe("Modified POST body for modify action."),
+        newUrl: z.string().optional().describe("Redirect request to new URL for modify action."),
+        newMethod: z.string().optional().describe("Change HTTP method for modify action."),
+      },
+    },
+    safeTool(async (args: {
+      urlPattern: string;
+      action: "block" | "mock" | "modify" | "inspect";
+      resourceType?: string;
+      mockStatus?: number;
+      mockHeaders?: Record<string, string>;
+      mockBody?: string;
+      modifyHeaders?: Record<string, string>;
+      modifyPostData?: string;
+      newUrl?: string;
+      newMethod?: string;
+    }) => session.setRequestInterception(args)),
+  );
+
+  server.registerTool(
+    "list_interceptions",
+    {
+      title: "List active interception rules",
+      description: "List all active request interception, blocking, and mocking rules with hit counts.",
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async () => session.listInterceptions()),
+  );
+
+  server.registerTool(
+    "clear_interceptions",
+    {
+      title: "Clear all request interception rules",
+      description: "Remove all active interception rules and disable Fetch domain interception.",
+    },
+    safeTool(async () => session.clearInterceptions()),
+  );
+
+  server.registerTool(
+    "export_har",
+    {
+      title: "Export network traffic as HAR",
+      description: "Export all captured requests, responses, headers, cookies, and timings in standard HTTP Archive (HAR 1.2) format for Burp/Charles/Caido.",
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async () => session.exportHar()),
+  );
+
+  // --- REVERSE ENGINEERING & DEEP INSPECTION ---
+
+  server.registerTool(
+    "anti_debug_bypass",
+    {
+      title: "Bypass anti-debugging protections",
+      description: "Neutralize anti-debugging protections: strip debugger statements from Function/eval/setInterval/setTimeout, prevent console.clear, and mask window sizing checks.",
+      inputSchema: {
+        disableDebugger: z.boolean().default(true),
+        disableConsoleClear: z.boolean().default(true),
+        disableTimingChecks: z.boolean().default(true),
+      },
+    },
+    safeTool(async (args: { disableDebugger: boolean; disableConsoleClear: boolean; disableTimingChecks: boolean }) =>
+      session.antiDebugBypass(args),
+    ),
+  );
+
+  server.registerTool(
+    "extract_endpoints",
+    {
+      title: "Extract API endpoints and secrets",
+      description: "Scan loaded scripts, DOM elements (links, forms, hidden inputs), and network traffic to extract REST endpoints, full URLs, WebSockets, API keys, and JWT tokens.",
+      inputSchema: {
+        scriptId: z.string().optional().describe("Scan a specific scriptId only, or omit to scan all loaded scripts."),
+        includeNetworkHistory: z.boolean().default(true),
+        includeDom: z.boolean().default(true),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async (args: { scriptId?: string; includeNetworkHistory: boolean; includeDom: boolean }) =>
+      session.extractEndpoints(args),
+    ),
+  );
+
+  server.registerTool(
+    "extract_sourcemap",
+    {
+      title: "Extract original source map files",
+      description: "Check loaded scripts for source maps (sourceMappingURL or base64 data URIs), download and parse them to extract original unminified TypeScript/React source files.",
+      inputSchema: {
+        scriptId: z.string().optional(),
+        urlContains: z.string().optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async (args: { scriptId?: string; urlContains?: string }) => session.extractSourceMap(args)),
+  );
+
+  server.registerTool(
+    "beautify_script",
+    {
+      title: "Beautify minified JavaScript",
+      description: "Format minified JavaScript code with indentation and line numbers for easier source reading and breakpoint placement.",
+      inputSchema: {
+        scriptId: z.string().min(1),
+        maxChars: z.number().int().min(1000).max(200000).default(50000),
+        offset: z.number().int().min(0).default(0).describe("Starting line offset."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async (args: { scriptId: string; maxChars: number; offset: number }) =>
+      session.beautifyScript(args.scriptId, args.maxChars, args.offset),
+    ),
+  );
+
+  server.registerTool(
+    "inspect_element",
+    {
+      title: "Inspect DOM element and event listeners",
+      description: "Inspect element tag, attributes, computed styles, child count, HTML snippet, and attached JavaScript event listeners (click, change, submit, etc.).",
+      inputSchema: {
+        selector: z.string().min(1).describe("CSS selector of element to inspect."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async (args: { selector: string }) => session.inspectElement(args.selector)),
+  );
+
+  server.registerTool(
+    "override_function",
+    {
+      title: "Hook or monkey-patch a function",
+      description: "Intercept a global or nested object function (e.g. CryptoJS.AES.encrypt, window.signRequest) to log arguments/return values or mock return value.",
+      inputSchema: {
+        target: z.string().min(1).describe("Object property path, e.g. CryptoJS.AES.encrypt or window.signRequest."),
+        behavior: z.enum(["log", "mock", "passthrough"]).default("log"),
+        mockReturnValue: z.unknown().optional().describe("Return value to use when behavior is 'mock'."),
+      },
+    },
+    safeTool(async (args: { target: string; behavior: "log" | "mock" | "passthrough"; mockReturnValue?: unknown }) =>
+      session.overrideFunction(args.target, args.behavior, args.mockReturnValue),
+    ),
+  );
+
+  server.registerTool(
+    "search_console",
+    {
+      title: "Search console messages",
+      description: "Search captured console logs, errors, and exceptions by text or regex query.",
+      inputSchema: {
+        query: z.string().min(1),
+        level: z.string().optional().describe("Filter by log level (log, info, warn, error, exception)."),
+        isRegex: z.boolean().default(false),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async (args: { query: string; level?: string; isRegex: boolean }) =>
+      session.searchConsole(args.query, args.level, args.isRegex),
+    ),
+  );
+
+  server.registerTool(
+    "detect_crypto",
+    {
+      title: "Detect crypto algorithms and libraries",
+      description: "Scan loaded scripts and page runtime memory for cryptographic signatures (AES S-Boxes, DES, RSA PEM, MD5/SHA constants, SM2/SM3/SM4, CryptoJS, JSEncrypt, Forge, WebCrypto).",
+      inputSchema: {
+        scriptId: z.string().optional().describe("Scan a specific scriptId only, or omit to scan all loaded scripts."),
+        urlContains: z.string().optional().describe("Filter scripts whose URL contains this substring."),
+        scanGlobalMemory: z.boolean().default(true).describe("Whether to scan window/runtime memory for active crypto objects."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async (args: { scriptId?: string; urlContains?: string; scanGlobalMemory: boolean }) =>
+      session.detectCrypto(args),
+    ),
+  );
+
+  server.registerTool(
+    "find_crypto_candidates",
+    {
+      title: "Rank encryption function candidates via AST",
+      description: "Perform AST analysis on JavaScript to locate and score candidate encryption/signing functions based on parameter names (password, sign, token, etc.), bitwise density, and hex formatting.",
+      inputSchema: {
+        scriptId: z.string().optional().describe("Specific scriptId to scan, or omit to scan all application scripts."),
+        targetParams: z.array(z.string()).optional().describe("Parameter names to search for (default: password, pwd, sign, token, signature, key, etc.)."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async (args: { scriptId?: string; targetParams?: string[] }) =>
+      session.findCryptoCandidates(args),
+    ),
+  );
+
+  server.registerTool(
+    "classify_anticrawl",
+    {
+      title: "Classify bot defense and anti-debug protections",
+      description: "Inspect page source, network traffic, and runtime global variables to identify anti-crawling vendors (Cloudflare, Akamai, DataDome, GeeTest, reCAPTCHA, DingXiang), JSVMP, and anti-debug traps.",
+      inputSchema: {
+        scriptId: z.string().optional().describe("Scan a specific scriptId, or omit to scan all loaded scripts and active page environment."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async (args: { scriptId?: string }) => session.classifyAnticrawl(args)),
+  );
+
+  server.registerTool(
+    "unpack_webpack",
+    {
+      title: "Inspect and unpack Webpack runtime modules",
+      description: "Discover Webpack/Vite chunk runtimes on the page (webpackChunk*, webpackJsonp), intercept __webpack_require__, list modules, and optionally require/dump a specific module.",
+      inputSchema: {
+        exportModuleId: z.union([z.string(), z.number()]).optional().describe("Require and inspect exports of a specific module ID."),
+        maxModules: z.number().int().min(1).max(2000).default(200).describe("Maximum module IDs to return."),
+      },
+    },
+    safeTool(async (args: { exportModuleId?: string | number; maxModules: number }) =>
+      session.unpackWebpack(args),
+    ),
+  );
+
+  server.registerTool(
+    "generate_jsrpc",
+    {
+      title: "Generate JSRPC browser-to-proxy bridge",
+      description: "Generate in-page hook stub, Python Flask HTTP proxy, and Burp Suite AutoDecoder configuration for exposing browser encryption functions directly to external tools.",
+      inputSchema: {
+        actionName: z.string().min(1).describe("Action name identifier, e.g. 'encrypt_password' or 'sign'."),
+        targetExpression: z.string().min(1).describe("JavaScript expression callable in page, e.g. 'window.sign' or '__mcp_webpack_require__(42).encrypt'."),
+        port: z.number().int().min(1024).max(65535).default(12080).describe("Local port for the Flask proxy bridge."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async (args: { actionName: string; targetExpression: string; port: number }) =>
+      session.generateJsrpc(args),
+    ),
+  );
+
   return server;
 }
+

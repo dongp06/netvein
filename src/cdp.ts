@@ -1,16 +1,39 @@
 import CDP from "chrome-remote-interface";
-import { findTextMatches, searchAst, textDiffSummary, type AstPattern } from "./analysis.js";
+import { launchBrowser, type LaunchOptions, type LaunchResult } from "./launcher.js";
+import {
+  beautifyJs,
+  classifyAnticrawl,
+  extractEndpointsAndSecrets,
+  findCryptoCandidates,
+  findTextMatches,
+  generateJsrpcFiles,
+  identifyCrypto,
+  parseSourceMap,
+  searchAst,
+  textDiffSummary,
+  type AstPattern,
+} from "./analysis.js";
 import type {
+  AnticrawlMatch,
   BreakpointRecord,
   ConsoleRecord,
+  CookieRecord,
+  CryptoCandidate,
+  CryptoMatch,
+  DomBreakpointRecord,
+  EventBreakpointRecord,
   HookEventRecord,
   HookRecord,
+  InterceptRule,
   NetworkRecord,
   PauseState,
   ScriptRecord,
+  StorageItem,
   TargetInfo,
   TimelineRecord,
   WebSocketFrameRecord,
+  WebpackModuleInfo,
+  XhrBreakpointRecord,
 } from "./types.js";
 
 const BINDING_NAME = "__reverse_engineering_mcp_emit";
@@ -583,6 +606,12 @@ export class CdpSession {
   private consoleEventSequence = 0;
   private pauseState: PauseState | null = null;
   private readonly breakpoints = new Map<string, BreakpointRecord>();
+  private readonly domBreakpoints = new Map<string, DomBreakpointRecord>();
+  private readonly eventBreakpoints = new Set<string>();
+  private readonly xhrBreakpoints = new Set<string>();
+  private readonly interceptRules = new Map<string, InterceptRule>();
+  private interceptionEnabled = false;
+  private antiDebugBypassScriptId: string | null = null;
   private readonly hooks = new Map<string, HookRecord>();
   private readonly taintTrackers = new Map<string, TaintTrackerRecord>();
   private readonly bundleSnapshots = new Map<string, Map<string, BundleScriptSnapshot>>();
@@ -598,35 +627,65 @@ export class CdpSession {
     return this.client !== null;
   }
 
-  async listTargets(): Promise<TargetInfo[]> {
-    const targets = await CDP.List({ host: this.options.host, port: this.options.port });
-    return (targets as TargetInfo[]).map((target) => ({
-      id: target.id,
-      type: target.type,
-      title: target.title,
-      url: target.url,
-      description: target.description,
-      webSocketDebuggerUrl: target.webSocketDebuggerUrl,
-    }));
+  async listTargets(autoLaunch = true): Promise<TargetInfo[]> {
+    try {
+      const targets = await CDP.List({ host: this.options.host, port: this.options.port });
+      return (targets as TargetInfo[]).map((target) => ({
+        id: target.id,
+        type: target.type,
+        title: target.title,
+        url: target.url,
+        description: target.description,
+        webSocketDebuggerUrl: target.webSocketDebuggerUrl,
+      }));
+    } catch (err) {
+      if (autoLaunch) {
+        await launchBrowser({ host: this.options.host, port: this.options.port });
+        return this.listTargets(false);
+      }
+      throw err;
+    }
+  }
+
+  async launchBrowser(options: LaunchOptions = {}): Promise<LaunchResult> {
+    return launchBrowser({
+      host: this.options.host,
+      port: this.options.port,
+      ...options,
+    });
   }
 
   async connect(selector: TargetSelector = {}): Promise<TargetInfo> {
     await this.disconnect();
-    const targets = await this.listTargets();
-    const pages = targets.filter((target) => target.type === "page" || target.type === "webview");
+    let targets: TargetInfo[];
+    try {
+      targets = await this.listTargets(true);
+    } catch (err) {
+      throw new Error(`Failed to list CDP targets or launch browser: ${String(err)}`);
+    }
+
+    let pages = targets.filter((target) => target.type === "page" || target.type === "webview");
+    if (pages.length === 0) {
+      try {
+        await CDP.New({ host: this.options.host, port: this.options.port, url: selector.url || "about:blank" });
+        targets = await this.listTargets(false);
+        pages = targets.filter((target) => target.type === "page" || target.type === "webview");
+      } catch (_) {}
+    }
+
     const target = selector.targetId
       ? targets.find((candidate) => candidate.id === selector.targetId)
       : pages.find((candidate) => {
           if (selector.url && !candidate.url.includes(selector.url)) return false;
           if (selector.title && !candidate.title.includes(selector.title)) return false;
           return true;
-        });
+        }) || pages[0];
 
     if (!target) {
       throw new Error(
         selector.targetId
           ? `CDP target not found: ${selector.targetId}`
-          : "No matching page target found. Start Chrome with --remote-debugging-port=9222 and open a page first.",
+          : "No matching page target found after launching browser.",
       );
     }
 
@@ -642,6 +701,7 @@ export class CdpSession {
       await this.client.Network.enable({ maxTotalBufferSize: 50 * 1024 * 1024, maxResourceBufferSize: 10 * 1024 * 1024 });
       await this.client.Page.enable();
       await this.client.Debugger.enable();
+      await this.client.DOM.enable();
       await this.client.Runtime.addBinding({ name: BINDING_NAME });
     } catch (error) {
       await this.disconnect();
@@ -692,6 +752,33 @@ export class CdpSession {
         // Breakpoints may already be gone with the target.
       }
     }
+    for (const bp of this.domBreakpoints.values()) {
+      try {
+        await client.DOMDebugger.removeDOMBreakpoint({ nodeId: bp.nodeId, type: bp.type });
+      } catch (_) {}
+    }
+    for (const ev of this.eventBreakpoints) {
+      try {
+        await client.DOMDebugger.removeEventListenerBreakpoint({ eventName: ev });
+      } catch (_) {}
+    }
+    for (const xhr of this.xhrBreakpoints) {
+      try {
+        await client.DOMDebugger.removeXHRBreakpoint({ url: xhr });
+      } catch (_) {}
+    }
+    if (this.interceptionEnabled) {
+      try {
+        await client.Fetch.disable();
+      } catch (_) {}
+      this.interceptionEnabled = false;
+    }
+    if (this.antiDebugBypassScriptId) {
+      try {
+        await client.Page.removeScriptToEvaluateOnNewDocument({ identifier: this.antiDebugBypassScriptId });
+      } catch (_) {}
+      this.antiDebugBypassScriptId = null;
+    }
     this.client = null;
     this.target = null;
     this.pauseState = null;
@@ -718,11 +805,17 @@ export class CdpSession {
         hookEvents: this.hookEvents.length,
         timeline: this.timeline.length,
         breakpoints: this.breakpoints.size,
+        domBreakpoints: this.domBreakpoints.size,
+        eventBreakpoints: this.eventBreakpoints.size,
+        xhrBreakpoints: this.xhrBreakpoints.size,
+        interceptRules: this.interceptRules.size,
         hooks: this.hooks.size,
         taintTrackers: this.taintTrackers.size,
       },
       paused: this.pauseState !== null,
       timelineRecording: this.timelineEnabled,
+      interceptionActive: this.interceptionEnabled,
+      antiDebugActive: Boolean(this.antiDebugBypassScriptId),
     };
   }
 
@@ -1588,6 +1681,1452 @@ export class CdpSession {
     return { cleared: true };
   }
 
+  // ==========================================
+  // BROWSER AUTOMATION & INTERACTION
+  // ==========================================
+
+  async screenshot(options: {
+    selector?: string;
+    fullPage?: boolean;
+    format?: "png" | "jpeg";
+    quality?: number;
+  } = {}): Promise<{ dataBase64: string; mimeType: string; width?: number; height?: number }> {
+    const client = this.requireClient();
+    const format = options.format ?? "png";
+    const quality = format === "jpeg" ? (options.quality ?? 80) : undefined;
+
+    if (options.fullPage) {
+      const metrics = await client.Page.getLayoutMetrics();
+      const width = Math.ceil(metrics.contentSize ? metrics.contentSize.width : metrics.layoutViewport.clientWidth);
+      const height = Math.ceil(metrics.contentSize ? metrics.contentSize.height : metrics.layoutViewport.clientHeight);
+      const result = await client.Page.captureScreenshot({
+        format,
+        quality,
+        clip: { x: 0, y: 0, width, height, scale: 1 },
+        captureBeyondViewport: true,
+      });
+      return { dataBase64: result.data, mimeType: `image/${format}`, width, height };
+    }
+
+    if (options.selector) {
+      const evalResult = await client.Runtime.evaluate({
+        expression: `(() => {
+          const el = document.querySelector(${JSON.stringify(options.selector)});
+          if (!el) return null;
+          el.scrollIntoView({ block: 'center', inline: 'center' });
+          const rect = el.getBoundingClientRect();
+          return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+        })()`,
+        returnByValue: true,
+      });
+      const rect = evalResult.result?.value;
+      if (!rect || rect.width <= 0 || rect.height <= 0) {
+        throw new Error(`Element not found or not visible for selector: ${options.selector}`);
+      }
+      const result = await client.Page.captureScreenshot({
+        format,
+        quality,
+        clip: {
+          x: Math.max(0, rect.x),
+          y: Math.max(0, rect.y),
+          width: Math.max(1, rect.width),
+          height: Math.max(1, rect.height),
+          scale: 1,
+        },
+        captureBeyondViewport: true,
+      });
+      return {
+        dataBase64: result.data,
+        mimeType: `image/${format}`,
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      };
+    }
+
+    const result = await client.Page.captureScreenshot({ format, quality });
+    return { dataBase64: result.data, mimeType: `image/${format}` };
+  }
+
+  async pressKey(
+    key: string,
+    modifiers?: Array<"Alt" | "Control" | "Meta" | "Shift">,
+  ): Promise<{ pressed: string; modifiers: string[] }> {
+    const client = this.requireClient();
+    let modifierBitmask = 0;
+    if (modifiers?.includes("Alt")) modifierBitmask |= 1;
+    if (modifiers?.includes("Control")) modifierBitmask |= 2;
+    if (modifiers?.includes("Meta")) modifierBitmask |= 4;
+    if (modifiers?.includes("Shift")) modifierBitmask |= 8;
+
+    const keyMap: Record<string, { code: string; keyCode: number; text?: string }> = {
+      Enter: { code: "Enter", keyCode: 13, text: "\r" },
+      Tab: { code: "Tab", keyCode: 9, text: "\t" },
+      Escape: { code: "Escape", keyCode: 27 },
+      Backspace: { code: "Backspace", keyCode: 8 },
+      Delete: { code: "Delete", keyCode: 46 },
+      Space: { code: "Space", keyCode: 32, text: " " },
+      ArrowDown: { code: "ArrowDown", keyCode: 40 },
+      ArrowUp: { code: "ArrowUp", keyCode: 38 },
+      ArrowLeft: { code: "ArrowLeft", keyCode: 37 },
+      ArrowRight: { code: "ArrowRight", keyCode: 39 },
+      PageDown: { code: "PageDown", keyCode: 34 },
+      PageUp: { code: "PageUp", keyCode: 33 },
+      Home: { code: "Home", keyCode: 36 },
+      End: { code: "End", keyCode: 35 },
+      F12: { code: "F12", keyCode: 123 },
+    };
+
+    const keyInfo = keyMap[key];
+    if (keyInfo) {
+      await client.Input.dispatchKeyEvent({
+        type: "rawKeyDown",
+        key,
+        code: keyInfo.code,
+        windowsVirtualKeyCode: keyInfo.keyCode,
+        modifiers: modifierBitmask,
+        text: keyInfo.text,
+        unmodifiedText: keyInfo.text,
+      });
+      if (keyInfo.text) {
+        await client.Input.dispatchKeyEvent({
+          type: "char",
+          key,
+          code: keyInfo.code,
+          windowsVirtualKeyCode: keyInfo.keyCode,
+          modifiers: modifierBitmask,
+          text: keyInfo.text,
+          unmodifiedText: keyInfo.text,
+        });
+      }
+      await client.Input.dispatchKeyEvent({
+        type: "keyUp",
+        key,
+        code: keyInfo.code,
+        windowsVirtualKeyCode: keyInfo.keyCode,
+        modifiers: modifierBitmask,
+      });
+    } else {
+      for (const char of key) {
+        await client.Input.dispatchKeyEvent({
+          type: "keyDown",
+          text: char,
+          unmodifiedText: char,
+          modifiers: modifierBitmask,
+        });
+        await client.Input.dispatchKeyEvent({
+          type: "keyUp",
+          modifiers: modifierBitmask,
+        });
+      }
+    }
+
+    this.addTimeline("browser", "press_key", `Key pressed: ${key} (${(modifiers ?? []).join("+")})`, {
+      key,
+      modifiers,
+    });
+    return { pressed: key, modifiers: modifiers ?? [] };
+  }
+
+  async hoverSelector(selector: string): Promise<{ hovered: string; x: number; y: number }> {
+    const client = this.requireClient();
+    const evalResult = await client.Runtime.evaluate({
+      expression: `(() => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el) return null;
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+        const rect = el.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      })()`,
+      returnByValue: true,
+    });
+    const coords = evalResult.result?.value;
+    if (!coords) throw new Error(`Element not found for selector: ${selector}`);
+
+    await client.Input.dispatchMouseEvent({
+      type: "mouseMoved",
+      x: coords.x,
+      y: coords.y,
+    });
+
+    this.addTimeline("browser", "hover", `Hovered on ${selector} at (${Math.round(coords.x)}, ${Math.round(coords.y)})`);
+    return { hovered: selector, x: Math.round(coords.x), y: Math.round(coords.y) };
+  }
+
+  async scrollPage(options: { x?: number; y?: number; selector?: string } = {}): Promise<Record<string, unknown>> {
+    const client = this.requireClient();
+    if (options.selector) {
+      const evalResult = await client.Runtime.evaluate({
+        expression: `(() => {
+          const el = document.querySelector(${JSON.stringify(options.selector)});
+          if (!el) return false;
+          el.scrollIntoView({ behavior: 'instant', block: 'center', inline: 'center' });
+          return true;
+        })()`,
+        returnByValue: true,
+      });
+      if (!evalResult.result?.value) throw new Error(`Element not found for selector: ${options.selector}`);
+      return { scrolled: true, selector: options.selector };
+    }
+
+    const evalResult = await client.Runtime.evaluate({
+      expression: `(() => {
+        window.scrollBy({ left: ${options.x ?? 0}, top: ${options.y ?? 0}, behavior: 'instant' });
+        return { scrollX: window.scrollX, scrollY: window.scrollY };
+      })()`,
+      returnByValue: true,
+    });
+    return { scrolled: true, currentScroll: evalResult.result?.value };
+  }
+
+  async selectOption(selector: string, value: string): Promise<{ selected: string; value: string }> {
+    const client = this.requireClient();
+    const evalResult = await client.Runtime.evaluate({
+      expression: `(() => {
+        const select = document.querySelector(${JSON.stringify(selector)});
+        if (!select || select.tagName !== 'SELECT') return false;
+        let found = false;
+        for (const opt of select.options) {
+          if (opt.value === ${JSON.stringify(value)} || opt.text === ${JSON.stringify(value)}) {
+            select.value = opt.value;
+            found = true;
+            break;
+          }
+        }
+        if (!found) select.value = ${JSON.stringify(value)};
+        select.dispatchEvent(new Event('input', { bubbles: true }));
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      })()`,
+      returnByValue: true,
+    });
+    if (!evalResult.result?.value) throw new Error(`Could not select option in ${selector} with value: ${value}`);
+    return { selected: selector, value };
+  }
+
+  async reloadPage(ignoreCache = true, scriptToEvaluateOnLoad?: string): Promise<{ reloaded: boolean; ignoreCache: boolean }> {
+    const client = this.requireClient();
+    await client.Page.reload({ ignoreCache, scriptToEvaluateOnLoad });
+    this.addTimeline("browser", "reload", `Page reloaded (ignoreCache: ${ignoreCache})`);
+    return { reloaded: true, ignoreCache };
+  }
+
+  async setViewport(options: { width: number; height: number; deviceScaleFactor?: number; mobile?: boolean }): Promise<Record<string, unknown>> {
+    const client = this.requireClient();
+    await client.Emulation.setDeviceMetricsOverride({
+      width: options.width,
+      height: options.height,
+      deviceScaleFactor: options.deviceScaleFactor ?? 1,
+      mobile: options.mobile ?? false,
+    });
+    return { width: options.width, height: options.height, mobile: options.mobile ?? false };
+  }
+
+  async setUserAgent(options: { userAgent: string; acceptLanguage?: string; platform?: string }): Promise<Record<string, unknown>> {
+    const client = this.requireClient();
+    await client.Network.setUserAgentOverride({
+      userAgent: options.userAgent,
+      acceptLanguage: options.acceptLanguage,
+      platform: options.platform,
+    });
+    return { userAgent: options.userAgent, acceptLanguage: options.acceptLanguage, platform: options.platform };
+  }
+
+  async getCookies(urls?: string[]): Promise<CookieRecord[]> {
+    const client = this.requireClient();
+    const result = await client.Network.getCookies({
+      urls: urls ?? (this.target?.url ? [this.target.url] : undefined),
+    });
+    return (result.cookies ?? []).map((c: any) => ({
+      name: c.name,
+      value: c.value,
+      domain: c.domain,
+      path: c.path,
+      expires: c.expires,
+      size: c.size,
+      httpOnly: c.httpOnly,
+      secure: c.secure,
+      session: c.session,
+      sameSite: c.sameSite,
+    }));
+  }
+
+  async setCookie(cookie: {
+    name: string;
+    value: string;
+    domain?: string;
+    path?: string;
+    secure?: boolean;
+    httpOnly?: boolean;
+    sameSite?: string;
+    expires?: number;
+  }): Promise<{ success: boolean; name: string }> {
+    const client = this.requireClient();
+    const url = cookie.domain ? undefined : await this.getCurrentUrl();
+    await client.Network.setCookie({
+      name: cookie.name,
+      value: cookie.value,
+      url,
+      domain: cookie.domain,
+      path: cookie.path ?? "/",
+      secure: cookie.secure,
+      httpOnly: cookie.httpOnly,
+      sameSite: cookie.sameSite,
+      expires: cookie.expires,
+    });
+    return { success: true, name: cookie.name };
+  }
+
+  async deleteCookies(name: string, url?: string, domain?: string): Promise<{ deleted: string }> {
+    const client = this.requireClient();
+    const cookieUrl = url ?? (domain ? undefined : await this.getCurrentUrl());
+    await client.Network.deleteCookies({ name, url: cookieUrl, domain });
+    return { deleted: name };
+  }
+
+  async getStorage(type: "local" | "session" | "both" = "both"): Promise<Record<string, Record<string, string>>> {
+    const client = this.requireClient();
+    const result = await client.Runtime.evaluate({
+      expression: `(() => {
+        const dump = (s) => {
+          const res = {};
+          if (!s) return res;
+          for (let i = 0; i < s.length; i++) {
+            const k = s.key(i);
+            if (k) res[k] = s.getItem(k);
+          }
+          return res;
+        };
+        return {
+          localStorage: dump(window.localStorage),
+          sessionStorage: dump(window.sessionStorage),
+        };
+      })()`,
+      returnByValue: true,
+    });
+    const val = result.result?.value ?? {};
+    if (type === "local") return { localStorage: val.localStorage ?? {} };
+    if (type === "session") return { sessionStorage: val.sessionStorage ?? {} };
+    return val;
+  }
+
+  async setStorage(type: "local" | "session", key: string, value: string): Promise<{ type: string; key: string; value: string }> {
+    const client = this.requireClient();
+    const storageName = type === "local" ? "localStorage" : "sessionStorage";
+    await client.Runtime.evaluate({
+      expression: `window.${storageName}.setItem(${JSON.stringify(key)}, ${JSON.stringify(value)})`,
+      returnByValue: true,
+    });
+    return { type, key, value };
+  }
+
+  async clearStorage(type: "local" | "session" | "cookies" | "all" = "all"): Promise<{ cleared: string }> {
+    const client = this.requireClient();
+    if (type === "cookies" || type === "all") {
+      await client.Network.clearBrowserCookies();
+    }
+    if (type === "local" || type === "all") {
+      await client.Runtime.evaluate({ expression: "window.localStorage?.clear()", returnByValue: true });
+    }
+    if (type === "session" || type === "all") {
+      await client.Runtime.evaluate({ expression: "window.sessionStorage?.clear()", returnByValue: true });
+    }
+    if (type === "all") {
+      const currentUrl = await this.getCurrentUrl();
+      if (currentUrl) {
+        try {
+          const origin = new URL(currentUrl).origin;
+          await client.Storage.clearDataForOrigin({ origin, storageTypes: "all" });
+        } catch (_) {}
+      }
+    }
+    return { cleared: type };
+  }
+
+  // ==========================================
+  // BREAKPOINTS & DEBUGGER EXTENSIONS
+  // ==========================================
+
+  async setDomBreakpoint(
+    selector: string,
+    type: "subtree-modified" | "attribute-modified" | "node-removed",
+  ): Promise<DomBreakpointRecord> {
+    const client = this.requireClient();
+    const doc = await client.DOM.getDocument({ depth: -1 });
+    const { nodeId } = await client.DOM.querySelector({ nodeId: doc.root.nodeId, selector });
+    if (!nodeId || nodeId === 0) {
+      throw new Error(`Element not found for selector: ${selector}`);
+    }
+    await client.DOMDebugger.setDOMBreakpoint({ nodeId, type });
+    const breakpointId = `dom-${nodeId}-${type}`;
+    const record: DomBreakpointRecord = {
+      breakpointId,
+      nodeId,
+      selector,
+      type,
+      createdAt: nowIso(),
+    };
+    this.domBreakpoints.set(breakpointId, record);
+    this.addTimeline("debugger", "dom_breakpoint_set", `DOM breakpoint set on ${selector} (${type})`, record);
+    return record;
+  }
+
+  async removeDomBreakpoint(breakpointId: string): Promise<{ removed: string }> {
+    const client = this.requireClient();
+    const record = this.domBreakpoints.get(breakpointId);
+    if (!record) throw new Error(`DOM breakpoint not found: ${breakpointId}`);
+    await client.DOMDebugger.removeDOMBreakpoint({ nodeId: record.nodeId, type: record.type });
+    this.domBreakpoints.delete(breakpointId);
+    return { removed: breakpointId };
+  }
+
+  async setEventBreakpoint(eventName: string, targetName?: string): Promise<EventBreakpointRecord> {
+    const client = this.requireClient();
+    await client.DOMDebugger.setEventListenerBreakpoint({ eventName, targetName });
+    this.eventBreakpoints.add(eventName);
+    this.addTimeline("debugger", "event_breakpoint_set", `Event breakpoint set on ${eventName}`);
+    return { eventName, targetName, createdAt: nowIso() };
+  }
+
+  async removeEventBreakpoint(eventName: string, targetName?: string): Promise<{ removed: string }> {
+    const client = this.requireClient();
+    await client.DOMDebugger.removeEventListenerBreakpoint({ eventName, targetName });
+    this.eventBreakpoints.delete(eventName);
+    return { removed: eventName };
+  }
+
+  async setXhrBreakpoint(url: string): Promise<XhrBreakpointRecord> {
+    const client = this.requireClient();
+    await client.DOMDebugger.setXHRBreakpoint({ url });
+    this.xhrBreakpoints.add(url);
+    this.addTimeline("debugger", "xhr_breakpoint_set", `XHR breakpoint set on URL pattern: ${url}`);
+    return { url, createdAt: nowIso() };
+  }
+
+  async removeXhrBreakpoint(url: string): Promise<{ removed: string }> {
+    const client = this.requireClient();
+    await client.DOMDebugger.removeXHRBreakpoint({ url });
+    this.xhrBreakpoints.delete(url);
+    return { removed: url };
+  }
+
+  listAllBreakpoints(): Record<string, unknown> {
+    return {
+      javascript: this.listBreakpoints(),
+      dom: [...this.domBreakpoints.values()],
+      eventListeners: [...this.eventBreakpoints],
+      xhr: [...this.xhrBreakpoints],
+    };
+  }
+
+  async getCallFrameScope(callFrameId: string): Promise<Record<string, unknown>> {
+    if (!this.pauseState) throw new Error("Debugger is not paused");
+    const frame = (this.pauseState.callFrames as any[]).find((f) => f.callFrameId === callFrameId);
+    if (!frame) throw new Error(`Call frame not found: ${callFrameId}`);
+
+    const scopes: Array<Record<string, unknown>> = [];
+    for (const scope of frame.scopeChain ?? []) {
+      let variables: unknown[] = [];
+      if (scope.object?.objectId) {
+        try {
+          variables = await this.getObjectProperties(scope.object.objectId);
+        } catch (_) {}
+      }
+      scopes.push({
+        type: scope.type,
+        name: scope.name,
+        variables,
+      });
+    }
+
+    return {
+      callFrameId,
+      functionName: frame.functionName,
+      url: frame.url,
+      location: frame.location,
+      scopes,
+    };
+  }
+
+  async setVariableValue(input: {
+    callFrameId: string;
+    scopeNumber: number;
+    variableName: string;
+    value: unknown;
+  }): Promise<{ updated: boolean }> {
+    const client = this.requireClient();
+    await client.Debugger.setVariableValue({
+      callFrameId: input.callFrameId,
+      scopeNumber: input.scopeNumber,
+      variableName: input.variableName,
+      newValue: { value: input.value },
+    });
+    return { updated: true };
+  }
+
+  async restartFrame(callFrameId: string): Promise<Record<string, unknown>> {
+    const client = this.requireClient();
+    const result = await client.Debugger.restartFrame({ callFrameId });
+    return { callFrames: (result.callFrames ?? []).map(simplifyCallFrame) };
+  }
+
+  // ==========================================
+  // NETWORK SEARCH, WEBSOCKET & TRAFFIC TAMPERING
+  // ==========================================
+
+  async searchNetwork(options: {
+    query: string;
+    isRegex?: boolean;
+    caseSensitive?: boolean;
+    limit?: number;
+  }): Promise<Array<Record<string, unknown>>> {
+    const limit = options.limit ?? 50;
+    const isRegex = options.isRegex ?? false;
+    const caseSensitive = options.caseSensitive ?? false;
+
+    let matcher: (text: string) => boolean;
+    if (isRegex) {
+      const regex = new RegExp(options.query, caseSensitive ? "" : "i");
+      matcher = (text: string) => regex.test(text);
+    } else {
+      const query = caseSensitive ? options.query : options.query.toLowerCase();
+      matcher = (text: string) => {
+        const target = caseSensitive ? text : text.toLowerCase();
+        return target.includes(query);
+      };
+    }
+
+    const matches: Array<Record<string, unknown>> = [];
+    for (const record of this.networkRecords.values()) {
+      if (matches.length >= limit) break;
+      const matchedFields: string[] = [];
+
+      if (matcher(record.url)) matchedFields.push("url");
+      if (record.postData && matcher(record.postData)) matchedFields.push("postData");
+      if (record.requestHeaders && matcher(JSON.stringify(record.requestHeaders))) matchedFields.push("requestHeaders");
+      if (record.responseHeaders && matcher(JSON.stringify(record.responseHeaders))) matchedFields.push("responseHeaders");
+
+      if (matchedFields.length > 0) {
+        matches.push({
+          requestId: record.requestId,
+          method: record.method,
+          url: record.url,
+          status: record.status,
+          type: record.type,
+          matchedFields,
+          snippet: record.postData ? record.postData.slice(0, 300) : undefined,
+        });
+      }
+    }
+
+    return matches;
+  }
+
+  getWebSocketMessages(options: {
+    requestId?: string;
+    urlContains?: string;
+    direction?: "sent" | "received" | "both";
+    query?: string;
+    limit?: number;
+  } = {}): WebSocketFrameRecord[] {
+    const direction = options.direction ?? "both";
+    const limit = options.limit ?? 100;
+
+    return this.socketFrames
+      .filter((frame) => {
+        if (options.requestId && frame.requestId !== options.requestId) return false;
+        if (direction !== "both" && frame.direction !== direction) return false;
+        if (options.query && !frame.payloadData.toLowerCase().includes(options.query.toLowerCase())) return false;
+        return true;
+      })
+      .slice(-limit);
+  }
+
+  async setRequestInterception(rule: {
+    urlPattern: string;
+    action: "block" | "mock" | "modify" | "inspect";
+    resourceType?: string;
+    mockStatus?: number;
+    mockHeaders?: Record<string, string>;
+    mockBody?: string;
+    modifyHeaders?: Record<string, string>;
+    modifyPostData?: string;
+    newUrl?: string;
+    newMethod?: string;
+  }): Promise<InterceptRule> {
+    const client = this.requireClient();
+    if (!this.interceptionEnabled) {
+      await client.Fetch.enable({ patterns: [{ urlPattern: "*" }] });
+      this.interceptionEnabled = true;
+    }
+
+    const id = `rule-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const record: InterceptRule = {
+      id,
+      urlPattern: rule.urlPattern,
+      resourceType: rule.resourceType,
+      action: rule.action,
+      mockStatus: rule.mockStatus,
+      mockHeaders: rule.mockHeaders,
+      mockBody: rule.mockBody,
+      modifyHeaders: rule.modifyHeaders,
+      modifyPostData: rule.modifyPostData,
+      newUrl: rule.newUrl,
+      newMethod: rule.newMethod,
+      hitCount: 0,
+      createdAt: nowIso(),
+    };
+
+    this.interceptRules.set(id, record);
+    this.addTimeline("interception", "rule_added", `Interception rule added for ${rule.urlPattern} (${rule.action})`, record);
+    return record;
+  }
+
+  listInterceptions(): InterceptRule[] {
+    return [...this.interceptRules.values()];
+  }
+
+  async clearInterceptions(): Promise<{ cleared: number }> {
+    const count = this.interceptRules.size;
+    if (this.client && this.interceptionEnabled) {
+      try {
+        await this.client.Fetch.disable();
+      } catch (_) {}
+      this.interceptionEnabled = false;
+    }
+    this.interceptRules.clear();
+    return { cleared: count };
+  }
+
+  exportHar(): string {
+    const entries = [...this.networkRecords.values()].map((record) => {
+      const rawHeaders = this.rawRequestHeaders.get(record.requestId) ?? {};
+      return {
+        startedDateTime: record.startedAt,
+        time: 50,
+        request: {
+          method: record.method,
+          url: record.url,
+          httpVersion: "HTTP/1.1",
+          headers: Object.entries(rawHeaders).map(([name, value]) => ({ name, value })),
+          queryString: [],
+          cookies: [],
+          headersSize: -1,
+          bodySize: record.postData ? record.postData.length : 0,
+          postData: record.postData
+            ? {
+                mimeType: String(rawHeaders["content-type"] || "application/octet-stream"),
+                text: record.postData,
+              }
+            : undefined,
+        },
+        response: {
+          status: record.status ?? 0,
+          statusText: record.statusText ?? "",
+          httpVersion: "HTTP/1.1",
+          headers: Object.entries(record.responseHeaders ?? {}).map(([name, value]) => ({
+            name,
+            value: String(value),
+          })),
+          cookies: [],
+          content: {
+            size: record.encodedDataLength ?? 0,
+            mimeType: record.mimeType ?? "text/plain",
+          },
+          redirectURL: "",
+          headersSize: -1,
+          bodySize: record.encodedDataLength ?? -1,
+        },
+        cache: {},
+        timings: { send: 0, wait: 50, receive: 0 },
+      };
+    });
+
+    const har = {
+      log: {
+        version: "1.2",
+        creator: { name: "reverse-engineering-mcp", version: "0.2.0" },
+        pages: [],
+        entries,
+      },
+    };
+
+    return JSON.stringify(har, null, 2);
+  }
+
+  // ==========================================
+  // WEB REVERSE ENGINEERING & DEEP INSPECTION
+  // ==========================================
+
+  async antiDebugBypass(options: {
+    disableDebugger?: boolean;
+    disableConsoleClear?: boolean;
+    disableTimingChecks?: boolean;
+  } = {}): Promise<{ active: boolean; scriptId: string }> {
+    const client = this.requireClient();
+    const disableDebugger = options.disableDebugger ?? true;
+    const disableConsoleClear = options.disableConsoleClear ?? true;
+    const disableTimingChecks = options.disableTimingChecks ?? true;
+
+    const script = `
+(() => {
+  if (window.__reverse_engineering_mcp_anti_debug_active) return;
+  window.__reverse_engineering_mcp_anti_debug_active = true;
+
+  ${disableDebugger ? `
+  const OriginalFunction = window.Function;
+  const FunctionProxy = function(...args) {
+    if (args.length > 0) {
+      const bodyIndex = args.length - 1;
+      if (typeof args[bodyIndex] === "string" && args[bodyIndex].includes("debugger")) {
+        args[bodyIndex] = args[bodyIndex].replace(/debugger\\s*;?/g, "/* debugger stripped */");
+      }
+    }
+    return OriginalFunction.apply(this, args);
+  };
+  FunctionProxy.prototype = OriginalFunction.prototype;
+  window.Function = FunctionProxy;
+
+  const originalEval = window.eval;
+  window.eval = function(code) {
+    if (typeof code === "string" && code.includes("debugger")) {
+      code = code.replace(/debugger\\s*;?/g, "/* debugger stripped */");
+    }
+    return originalEval.call(this, code);
+  };
+
+  const originalSetInterval = window.setInterval;
+  window.setInterval = function(fn, delay, ...args) {
+    if (typeof fn === "string" && fn.includes("debugger")) {
+      return -1;
+    }
+    if (typeof fn === "function") {
+      const fnStr = fn.toString();
+      if (fnStr.includes("debugger") || (fnStr.includes("constructor") && fnStr.includes("call"))) {
+        return -1;
+      }
+    }
+    return originalSetInterval.call(this, fn, delay, ...args);
+  };
+  ` : ""}
+
+  ${disableConsoleClear ? `
+  if (window.console) {
+    window.console.clear = function() { /* console.clear neutralized */ };
+  }
+  ` : ""}
+
+  ${disableTimingChecks ? `
+  try {
+    Object.defineProperty(window, "outerWidth", { get: () => window.innerWidth });
+    Object.defineProperty(window, "outerHeight", { get: () => window.innerHeight });
+  } catch (_) {}
+  ` : ""}
+})();
+    `;
+
+    if (this.antiDebugBypassScriptId) {
+      try {
+        await client.Page.removeScriptToEvaluateOnNewDocument({ identifier: this.antiDebugBypassScriptId });
+      } catch (_) {}
+    }
+
+    const res = await client.Page.addScriptToEvaluateOnNewDocument({ source: script });
+    this.antiDebugBypassScriptId = res.identifier;
+    await client.Runtime.evaluate({ expression: script, awaitPromise: false, returnByValue: true });
+
+    this.addTimeline("debugger", "anti_debug_bypass", "Anti-debugging bypass enabled on target");
+    return { active: true, scriptId: res.identifier };
+  }
+
+  async extractEndpoints(options: {
+    scriptId?: string;
+    includeNetworkHistory?: boolean;
+    includeDom?: boolean;
+  } = {}): Promise<Record<string, unknown>> {
+    const includeNetwork = options.includeNetworkHistory ?? true;
+    const includeDom = options.includeDom ?? true;
+
+    const allEndpoints = new Set<string>();
+    const allUrls = new Set<string>();
+    const allWebsockets = new Set<string>();
+    const allSecrets: Array<{ type: string; value: string; source: string }> = [];
+    const allParams = new Set<string>();
+    const hiddenInputs: Array<{ name?: string; value?: string; id?: string }> = [];
+
+    const scriptsToScan = options.scriptId
+      ? [this.scripts.get(options.scriptId)].filter(Boolean) as ScriptRecord[]
+      : [...this.scripts.values()];
+
+    for (const script of scriptsToScan.slice(0, 100)) {
+      try {
+        const src = await this.getScriptSource(script.scriptId, 300_000);
+        if (src.source) {
+          const insights = extractEndpointsAndSecrets(String(src.source));
+          insights.endpoints.forEach((ep) => allEndpoints.add(ep));
+          insights.urls.forEach((u) => allUrls.add(u));
+          insights.websockets.forEach((w) => allWebsockets.add(w));
+          insights.parameters.forEach((p) => allParams.add(p));
+          insights.secrets.forEach((s) => allSecrets.push({ ...s, source: script.url || script.scriptId }));
+        }
+      } catch (_) {}
+    }
+
+    if (includeNetwork) {
+      for (const record of this.networkRecords.values()) {
+        allUrls.add(record.url);
+        try {
+          const parsed = new URL(record.url);
+          allEndpoints.add(parsed.pathname);
+          parsed.searchParams.forEach((_, key) => allParams.add(key));
+        } catch (_) {}
+        if (record.postData) {
+          const insights = extractEndpointsAndSecrets(record.postData);
+          insights.secrets.forEach((s) => allSecrets.push({ ...s, source: `request:${record.url}` }));
+        }
+      }
+    }
+
+    if (includeDom && this.client) {
+      try {
+        const domResult = await this.client.Runtime.evaluate({
+          expression: `(() => {
+            const links = Array.from(document.querySelectorAll("a[href], link[href]")).map(el => el.getAttribute("href")).filter(Boolean);
+            const forms = Array.from(document.querySelectorAll("form")).map(el => ({ action: el.getAttribute("action"), method: el.method }));
+            const hidden = Array.from(document.querySelectorAll("input[type=hidden]")).map(el => ({ name: el.name, id: el.id, value: el.value }));
+            const scripts = Array.from(document.querySelectorAll("script[src]")).map(el => el.getAttribute("src")).filter(Boolean);
+            return { links, forms, hidden, scripts };
+          })()`,
+          returnByValue: true,
+        });
+        const domData = domResult.result?.value;
+        if (domData) {
+          (domData.links || []).forEach((link: string) => {
+            if (link.startsWith("http")) allUrls.add(link);
+            else if (link.startsWith("/")) allEndpoints.add(link);
+          });
+          (domData.scripts || []).forEach((src: string) => {
+            if (src.startsWith("http")) allUrls.add(src);
+            else if (src.startsWith("/")) allEndpoints.add(src);
+          });
+          (domData.forms || []).forEach((form: any) => {
+            if (form.action?.startsWith("/")) allEndpoints.add(form.action);
+            else if (form.action?.startsWith("http")) allUrls.add(form.action);
+          });
+          (domData.hidden || []).forEach((h: any) => hiddenInputs.push(h));
+        }
+      } catch (_) {}
+    }
+
+    return {
+      summary: {
+        totalEndpoints: allEndpoints.size,
+        totalUrls: allUrls.size,
+        totalWebsockets: allWebsockets.size,
+        totalSecrets: allSecrets.length,
+        totalParameters: allParams.size,
+        totalHiddenInputs: hiddenInputs.length,
+      },
+      apiEndpoints: [...allEndpoints].sort(),
+      externalUrls: [...allUrls].sort().slice(0, 300),
+      websockets: [...allWebsockets].sort(),
+      potentialSecrets: allSecrets.slice(0, 50),
+      parameters: [...allParams].sort(),
+      hiddenInputs,
+    };
+  }
+
+  async extractSourceMap(options: { scriptId?: string; urlContains?: string } = {}): Promise<Record<string, unknown>> {
+    const client = this.requireClient();
+    const candidates: ScriptRecord[] = [];
+    for (const script of this.scripts.values()) {
+      if (options.scriptId && script.scriptId !== options.scriptId) continue;
+      if (options.urlContains && !script.url.includes(options.urlContains)) continue;
+      if (script.sourceMapURL) candidates.push(script);
+    }
+
+    if (candidates.length === 0) {
+      return {
+        found: 0,
+        message: "No scripts found with sourceMapURL matching criteria.",
+        scriptsWithSourceMapCount: [...this.scripts.values()].filter((s) => Boolean(s.sourceMapURL)).length,
+      };
+    }
+
+    const results: Array<Record<string, unknown>> = [];
+    for (const candidate of candidates.slice(0, 5)) {
+      let rawMap: string | undefined;
+      const sourceMapURL = candidate.sourceMapURL!;
+
+      if (sourceMapURL.startsWith("data:application/json;base64,")) {
+        rawMap = Buffer.from(sourceMapURL.slice(29), "base64").toString("utf8");
+      } else if (sourceMapURL.startsWith("data:application/json;charset=utf-8;base64,")) {
+        rawMap = Buffer.from(sourceMapURL.slice(44), "base64").toString("utf8");
+      } else {
+        try {
+          const resolvedUrl = new URL(sourceMapURL, candidate.url).href;
+          const evalFetch = await client.Runtime.evaluate({
+            expression: `fetch(${JSON.stringify(resolvedUrl)}).then(r => r.text())`,
+            awaitPromise: true,
+            returnByValue: true,
+          });
+          rawMap = evalFetch.result?.value;
+        } catch (_) {}
+      }
+
+      if (rawMap) {
+        try {
+          const parsed = parseSourceMap(rawMap);
+          results.push({
+            scriptId: candidate.scriptId,
+            scriptUrl: candidate.url,
+            sourceMapURL,
+            version: parsed.version,
+            file: parsed.file,
+            sourceFilesCount: parsed.sources.length,
+            sourceFiles: parsed.sources.map((s) => s.path),
+            sourcesWithContentCount: parsed.sources.filter((s) => Boolean(s.content)).length,
+            sampleSource: parsed.sources.find((s) => Boolean(s.content))
+              ? {
+                  path: parsed.sources.find((s) => Boolean(s.content))!.path,
+                  contentPreview: parsed.sources.find((s) => Boolean(s.content))!.content!.slice(0, 2000),
+                }
+              : undefined,
+          });
+        } catch (err) {
+          results.push({
+            scriptId: candidate.scriptId,
+            scriptUrl: candidate.url,
+            sourceMapURL,
+            parseError: String(err),
+          });
+        }
+      } else {
+        results.push({
+          scriptId: candidate.scriptId,
+          scriptUrl: candidate.url,
+          sourceMapURL,
+          fetchError: "Could not fetch source map content",
+        });
+      }
+    }
+
+    return {
+      found: results.length,
+      results,
+    };
+  }
+
+  async beautifyScript(scriptId: string, maxChars = 50_000, offset = 0): Promise<Record<string, unknown>> {
+    const script = await this.getScriptSource(scriptId, 200_000);
+    const rawSource = String(script.source ?? "");
+    const formatted = beautifyJs(rawSource);
+    const lines = formatted.split("\n");
+    const slicedLines = lines.slice(offset, offset + 500);
+    const numberedSnippet = slicedLines
+      .map((line, index) => `${String(offset + index + 1).padStart(5, " ")}: ${line}`)
+      .join("\n")
+      .slice(0, maxChars);
+
+    return {
+      scriptId,
+      totalLines: lines.length,
+      offset,
+      returnedLines: slicedLines.length,
+      formattedSource: numberedSnippet,
+    };
+  }
+
+  async inspectElement(selector: string): Promise<Record<string, unknown>> {
+    const client = this.requireClient();
+    const expression = `(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      const attrs = {};
+      for (const attr of el.attributes) {
+        attrs[attr.name] = attr.value;
+      }
+      const computed = window.getComputedStyle(el);
+      const box = el.getBoundingClientRect();
+      return {
+        tagName: el.tagName.toLowerCase(),
+        id: el.id,
+        className: el.className,
+        attributes: attrs,
+        box: { x: box.left, y: box.top, width: box.width, height: box.height },
+        visible: box.width > 0 && box.height > 0 && computed.visibility !== "hidden" && computed.display !== "none",
+        childElementCount: el.childElementCount,
+        innerText: el.innerText ? el.innerText.slice(0, 1000) : "",
+        outerHtmlSnippet: el.outerHTML ? el.outerHTML.slice(0, 2000) : ""
+      };
+    })()`;
+
+    const result = await client.Runtime.evaluate({ expression, returnByValue: true });
+    const elementData = result.result?.value;
+    if (!elementData) {
+      throw new Error(`Element not found for selector: ${selector}`);
+    }
+
+    let listeners: unknown[] = [];
+    try {
+      const objResult = await client.Runtime.evaluate({
+        expression: `document.querySelector(${JSON.stringify(selector)})`,
+        returnByValue: false,
+      });
+      if (objResult.result?.objectId) {
+        const listenersResult = await client.DOMDebugger.getEventListeners({
+          objectId: objResult.result.objectId,
+          depth: 1,
+        });
+        listeners = (listenersResult.listeners ?? []).map((l: any) => ({
+          type: l.type,
+          useCapture: l.useCapture,
+          passive: l.passive,
+          once: l.once,
+          scriptId: l.scriptId,
+          lineNumber: l.lineNumber,
+          columnNumber: l.columnNumber,
+          handlerDescription: l.handler?.description,
+        }));
+      }
+    } catch (_) {}
+
+    return {
+      ...elementData,
+      eventListeners: listeners,
+    };
+  }
+
+  async overrideFunction(
+    target: string,
+    behavior: "log" | "mock" | "passthrough",
+    mockReturnValue?: unknown,
+  ): Promise<Record<string, unknown>> {
+    const client = this.requireClient();
+    const targetJson = JSON.stringify(target);
+    const behaviorJson = JSON.stringify(behavior);
+    const mockReturnJson = JSON.stringify(mockReturnValue);
+
+    const expression = `
+(() => {
+  const path = ${targetJson}.split(".");
+  let current = window;
+  for (let i = 0; i < path.length - 1; i++) {
+    current = current[path[i]];
+    if (!current) throw new Error("Path segment not found: " + path[i]);
+  }
+  const funcName = path[path.length - 1];
+  const original = current[funcName];
+  if (typeof original !== "function") throw new Error("Target is not a function: " + ${targetJson});
+
+  const behavior = ${behaviorJson};
+  const mockValue = ${mockReturnJson};
+
+  current[funcName] = function(...args) {
+    const stack = new Error().stack;
+    const callData = {
+      target: ${targetJson},
+      arguments: args.map(a => {
+        try { return JSON.parse(JSON.stringify(a)); } catch (_) { return String(a); }
+      }),
+      stack
+    };
+
+    if (typeof window.${BINDING_NAME} === "function") {
+      try {
+        window.${BINDING_NAME}(JSON.stringify({
+          hookId: "override",
+          kind: "override",
+          type: "function:call",
+          ...callData
+        }));
+      } catch (_) {}
+    }
+
+    if (behavior === "mock") return mockValue;
+    const result = original.apply(this, args);
+
+    if (typeof window.${BINDING_NAME} === "function") {
+      try {
+        window.${BINDING_NAME}(JSON.stringify({
+          hookId: "override",
+          kind: "override",
+          type: "function:return",
+          target: ${targetJson},
+          result: (function() {
+            try { return JSON.parse(JSON.stringify(result)); } catch (_) { return String(result); }
+          })()
+        }));
+      } catch (_) {}
+    }
+    return result;
+  };
+
+  return { target: ${targetJson}, behavior, installed: true };
+})()
+    `;
+
+    const result = await client.Runtime.evaluate({ expression, awaitPromise: true, returnByValue: true });
+    if (result.exceptionDetails) {
+      throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text || "Failed to override function");
+    }
+    return result.result?.value ?? { installed: true };
+  }
+
+  searchConsole(query: string, level?: string, isRegex = false): ConsoleRecord[] {
+    let matcher: (text: string) => boolean;
+    if (isRegex) {
+      const regex = new RegExp(query, "i");
+      matcher = (text: string) => regex.test(text);
+    } else {
+      const q = query.toLowerCase();
+      matcher = (text: string) => text.toLowerCase().includes(q);
+    }
+
+    return this.consoleEvents.filter((record) => {
+      if (level && record.type !== level && !record.type.startsWith(level)) return false;
+      const text = record.args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a ?? ""))).join(" ");
+      return matcher(text);
+    });
+  }
+
+  async detectCrypto(options: {
+    scriptId?: string;
+    urlContains?: string;
+    scanGlobalMemory?: boolean;
+  } = {}): Promise<Record<string, unknown>> {
+    const scanGlobal = options.scanGlobalMemory ?? true;
+    const matchesByScript: Array<{
+      scriptId: string;
+      url: string;
+      matches: CryptoMatch[];
+    }> = [];
+
+    const scriptsToScan = options.scriptId
+      ? [this.scripts.get(options.scriptId)].filter(Boolean) as ScriptRecord[]
+      : this.listScripts(options.urlContains, 100);
+
+    let totalMatches = 0;
+    for (const script of scriptsToScan) {
+      try {
+        const src = await this.getScriptSource(script.scriptId, 300_000);
+        if (src.source) {
+          const found = identifyCrypto(String(src.source));
+          if (found.length > 0) {
+            totalMatches += found.length;
+            matchesByScript.push({
+              scriptId: script.scriptId,
+              url: script.url,
+              matches: found,
+            });
+          }
+        }
+      } catch (_) {}
+    }
+
+    let globalMemoryFindings: Record<string, unknown> | undefined;
+    if (scanGlobal && this.client) {
+      try {
+        const evalRes = await this.client.Runtime.evaluate({
+          expression: `(() => {
+            const findings = {};
+            findings.hasCryptoJS = typeof window.CryptoJS !== "undefined";
+            findings.hasJSEncrypt = typeof window.JSEncrypt !== "undefined";
+            findings.hasForge = typeof window.forge !== "undefined";
+            findings.hasSmCrypto = typeof window.smCrypto !== "undefined" || typeof window.sm2 !== "undefined" || typeof window.sm3 !== "undefined" || typeof window.sm4 !== "undefined";
+            findings.hasWebCrypto = typeof window.crypto?.subtle !== "undefined";
+            findings.hasWebAssembly = typeof window.WebAssembly !== "undefined";
+            
+            const suspectedGlobals = [];
+            const keys = Object.getOwnPropertyNames(window);
+            const suspiciousPatterns = [/aes/i, /des/i, /rsa/i, /md5/i, /sha/i, /sm[234]/i, /encrypt/i, /decrypt/i, /sign/i, /token/i, /auth/i, /hash/i];
+            for (const key of keys.slice(0, 500)) {
+              if (suspiciousPatterns.some(p => p.test(key))) {
+                const val = window[key];
+                suspectedGlobals.push({
+                  name: key,
+                  type: typeof val,
+                  preview: typeof val === "function" ? val.toString().slice(0, 100) : (typeof val === "object" && val !== null ? Object.keys(val).slice(0, 10) : String(val).slice(0, 50))
+                });
+              }
+            }
+            findings.suspectedGlobals = suspectedGlobals;
+            return findings;
+          })()`,
+          returnByValue: true,
+        });
+        globalMemoryFindings = evalRes.result?.value;
+      } catch (_) {}
+    }
+
+    return {
+      summary: {
+        totalScriptsScanned: scriptsToScan.length,
+        scriptsWithCrypto: matchesByScript.length,
+        totalIndicatorsFound: totalMatches,
+      },
+      matchesByScript,
+      globalMemoryFindings,
+    };
+  }
+
+  async findCryptoCandidates(options: {
+    scriptId?: string;
+    targetParams?: string[];
+  } = {}): Promise<Record<string, unknown>> {
+    const targetParams = options.targetParams && options.targetParams.length > 0
+      ? options.targetParams
+      : ["password", "pwd", "sign", "token", "signature", "key", "encrypt", "hash", "timestamp", "nonce", "auth"];
+
+    const candidatesByScript: Array<{
+      scriptId: string;
+      url: string;
+      candidates: CryptoCandidate[];
+    }> = [];
+
+    const scriptsToScan = options.scriptId
+      ? [this.scripts.get(options.scriptId)].filter(Boolean) as ScriptRecord[]
+      : [...this.scripts.values()].filter(s => s.url && !s.url.includes("chrome-extension://")).slice(0, 30);
+
+    let totalCandidates = 0;
+    for (const script of scriptsToScan) {
+      try {
+        const src = await this.getScriptSource(script.scriptId, 300_000);
+        if (src.source) {
+          const candidates = findCryptoCandidates(String(src.source), targetParams);
+          if (candidates.length > 0) {
+            totalCandidates += candidates.length;
+            candidatesByScript.push({
+              scriptId: script.scriptId,
+              url: script.url,
+              candidates,
+            });
+          }
+        }
+      } catch (_) {}
+    }
+
+    return {
+      summary: {
+        totalScriptsScanned: scriptsToScan.length,
+        scriptsWithCandidates: candidatesByScript.length,
+        totalCandidates,
+        targetParameters: targetParams,
+      },
+      candidatesByScript,
+    };
+  }
+
+  async classifyAnticrawl(options: { scriptId?: string } = {}): Promise<Record<string, unknown>> {
+    const networkUrls = [...this.networkRecords.values()].map((r) => r.url);
+    const staticMatches: AnticrawlMatch[] = [];
+
+    const scriptsToScan = options.scriptId
+      ? [this.scripts.get(options.scriptId)].filter(Boolean) as ScriptRecord[]
+      : [...this.scripts.values()].slice(0, 50);
+
+    for (const script of scriptsToScan) {
+      try {
+        const src = await this.getScriptSource(script.scriptId, 200_000);
+        if (src.source) {
+          const matches = classifyAnticrawl(String(src.source), networkUrls);
+          for (const m of matches) {
+            if (!staticMatches.some(existing => existing.vendor === m.vendor && existing.type === m.type)) {
+              staticMatches.push(m);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    let runtimeChecks: Record<string, unknown> = {};
+    if (this.client) {
+      try {
+        const evalRes = await this.client.Runtime.evaluate({
+          expression: `(() => {
+            const checks = {};
+            checks.webdriver = Boolean(navigator.webdriver);
+            checks.phantom = Boolean(window._phantom || window.callPhantom);
+            checks.nightmare = Boolean(window.__nightmare);
+            checks.selenium = Boolean(window.document.__selenium_unwrapped || window.document.__webdriver_evaluate || window.document.__driver_evaluate);
+            checks.turnstile = Boolean(window.turnstile);
+            checks.recaptcha = Boolean(window.grecaptcha);
+            checks.geetest = Boolean(window.initGeetest || window.Geetest);
+            checks.dingxiang = Boolean(window._dx || window.DX);
+            checks.aliCaptcha = Boolean(window.AWSC || window.baxiaCommon);
+            checks.tencentCaptcha = Boolean(window.TencentCaptcha);
+            checks.fingerprintJs = Boolean(window.Fingerprint2 || window.fpjs);
+            checks.cloudflareChallenge = Boolean(window._cf_chl_opt || document.querySelector("#challenge-running, #cf-please-wait"));
+            checks.debuggerProtection = false;
+            
+            try {
+              checks.btoaIsNative = Function.prototype.toString.call(window.btoa).includes("[native code]");
+            } catch (e) {
+              checks.btoaIsNative = false;
+            }
+            return checks;
+          })()`,
+          returnByValue: true,
+        });
+        runtimeChecks = evalRes.result?.value ?? {};
+      } catch (_) {}
+    }
+
+    const combinedMatches: AnticrawlMatch[] = [...staticMatches];
+    if (runtimeChecks.turnstile) {
+      combinedMatches.push({ vendor: "Cloudflare Turnstile", type: "captcha", confidence: "high", evidence: "window.turnstile present in runtime" });
+    }
+    if (runtimeChecks.recaptcha) {
+      combinedMatches.push({ vendor: "Google reCAPTCHA", type: "captcha", confidence: "high", evidence: "window.grecaptcha present in runtime" });
+    }
+    if (runtimeChecks.geetest) {
+      combinedMatches.push({ vendor: "GeeTest", type: "captcha", confidence: "high", evidence: "window.initGeetest present in runtime" });
+    }
+    if (runtimeChecks.dingxiang) {
+      combinedMatches.push({ vendor: "DingXiang (顶象)", type: "captcha", confidence: "high", evidence: "window._dx present in runtime" });
+    }
+    if (runtimeChecks.aliCaptcha) {
+      combinedMatches.push({ vendor: "Alibaba / Baxia", type: "bot_defense", confidence: "high", evidence: "window.AWSC / baxia present in runtime" });
+    }
+    if (runtimeChecks.tencentCaptcha) {
+      combinedMatches.push({ vendor: "Tencent Waterproof Wall", type: "captcha", confidence: "high", evidence: "window.TencentCaptcha present in runtime" });
+    }
+    if (runtimeChecks.cloudflareChallenge) {
+      combinedMatches.push({ vendor: "Cloudflare Challenge", type: "bot_defense", confidence: "high", evidence: "Cloudflare Challenge DOM / _cf_chl_opt active" });
+    }
+
+    return {
+      totalVendorsDetected: combinedMatches.length,
+      detections: combinedMatches,
+      runtimeEnvironment: runtimeChecks,
+      suggestedBypass: combinedMatches.map(m => {
+        if (m.type === "anti_debug") return "Use anti_debug_bypass tool to neutralize Function/eval/debugger traps.";
+        if (m.type === "captcha") return "Solve captcha through browser interaction or use JSRPC to forward signed tokens.";
+        if (m.type === "jsvmp") return "Locate opcode dispatcher loop or hook entry/exit functions using override_function or set_breakpoint.";
+        return "Inspect network cookies and headers using get_cookies and get_network_request.";
+      }),
+    };
+  }
+
+  async unpackWebpack(options: {
+    exportModuleId?: string | number;
+    maxModules?: number;
+  } = {}): Promise<Record<string, unknown>> {
+    const client = this.requireClient();
+    const maxModules = options.maxModules ?? 200;
+    const targetModuleId = options.exportModuleId !== undefined ? JSON.stringify(options.exportModuleId) : "null";
+
+    const expression = `
+(() => {
+  const result = {
+    webpackGlobals: [],
+    hasRequireHook: false,
+    totalModulesCount: 0,
+    modules: [],
+    exportedModule: null,
+  };
+
+  for (const key of Object.getOwnPropertyNames(window)) {
+    if ((key.startsWith("webpackChunk") || key === "webpackJsonp") && Array.isArray(window[key])) {
+      result.webpackGlobals.push(key);
+    }
+  }
+
+  if (!window.__mcp_webpack_require__) {
+    for (const key of result.webpackGlobals) {
+      try {
+        const arr = window[key];
+        const probeChunkId = "__mcp_rev_probe_" + Math.floor(Math.random() * 100000);
+        arr.push([
+          [probeChunkId],
+          {},
+          (r) => {
+            window.__mcp_webpack_require__ = r;
+          }
+        ]);
+        if (window.__mcp_webpack_require__) break;
+      } catch (_) {}
+    }
+  }
+
+  const req = window.__mcp_webpack_require__;
+  if (req) {
+    result.hasRequireHook = true;
+    const modulesObj = req.m;
+    if (modulesObj) {
+      const keys = Array.isArray(modulesObj) ? modulesObj.map((_, idx) => idx) : Object.keys(modulesObj);
+      result.totalModulesCount = keys.length;
+      
+      const sampledKeys = keys.slice(0, ${maxModules});
+      result.modules = sampledKeys.map((id) => {
+        const fn = modulesObj[id];
+        return {
+          id,
+          type: typeof fn,
+          preview: typeof fn === "function" ? fn.toString().slice(0, 150) : typeof fn,
+        };
+      });
+    }
+
+    const targetId = ${targetModuleId};
+    if (targetId !== null) {
+      try {
+        const exported = req(targetId);
+        result.exportedModule = {
+          id: targetId,
+          type: typeof exported,
+          exportsKeys: exported && typeof exported === "object" ? Object.keys(exported).slice(0, 100) : [],
+          stringPreview: String(exported).slice(0, 500),
+        };
+      } catch (err) {
+        result.exportedModule = {
+          id: targetId,
+          error: "Failed to require module: " + String(err),
+        };
+      }
+    }
+  }
+
+  return result;
+})()
+    `;
+
+    const evalRes = await client.Runtime.evaluate({
+      expression,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+
+    if (evalRes.exceptionDetails) {
+      throw new Error(evalRes.exceptionDetails.exception?.description || evalRes.exceptionDetails.text || "Failed to inspect webpack runtime");
+    }
+
+    return evalRes.result?.value ?? {};
+  }
+
+  generateJsrpc(options: {
+    actionName: string;
+    targetExpression: string;
+    port?: number;
+  }): Record<string, unknown> {
+    const files = generateJsrpcFiles({
+      actionName: options.actionName,
+      targetExpression: options.targetExpression,
+      port: options.port,
+    });
+
+    return {
+      actionName: options.actionName,
+      targetExpression: options.targetExpression,
+      port: options.port ?? 12080,
+      files,
+      quickUsage: [
+        "1. Inject inPageStub into the target webpage via browser_evaluate.",
+        "2. Save flaskProxy into a .py script and run `python proxy.py`.",
+        "3. Configure Burp Suite AutoDecoder or script to send HTTP requests to http://127.0.0.1:" + (options.port ?? 12080) + "/go?action=" + options.actionName,
+      ],
+    };
+  }
+
   private resetState(): void {
     this.consoleEvents = [];
     this.scripts.clear();
@@ -1600,6 +3139,12 @@ export class CdpSession {
     this.timelineEnabled = true;
     this.pauseState = null;
     this.breakpoints.clear();
+    this.domBreakpoints.clear();
+    this.eventBreakpoints.clear();
+    this.xhrBreakpoints.clear();
+    this.interceptRules.clear();
+    this.interceptionEnabled = false;
+    this.antiDebugBypassScriptId = null;
     this.hooks.clear();
     this.taintTrackers.clear();
   }
@@ -1822,6 +3367,89 @@ export class CdpSession {
       this.pushLimited(this.socketFrames, frame, MAX_SOCKET_EVENTS);
       this.addTimeline("websocket", "received", `ws ← ${frame.payloadData.slice(0, 300)}`, frame);
     });
+
+    client.Fetch.on("requestPaused", async (params: any) => {
+      const { requestId, request } = params;
+      const url = request?.url || "";
+
+      let matchedRule: InterceptRule | undefined;
+      for (const rule of this.interceptRules.values()) {
+        if (this.matchWildcard(rule.urlPattern, url)) {
+          matchedRule = rule;
+          break;
+        }
+      }
+
+      if (!matchedRule) {
+        try {
+          await client.Fetch.continueRequest({ requestId });
+        } catch (_) {}
+        return;
+      }
+
+      matchedRule.hitCount++;
+      this.addTimeline("interception", matchedRule.action, `Intercepted ${request.method} ${url} -> ${matchedRule.action}`, {
+        url,
+        action: matchedRule.action,
+        ruleId: matchedRule.id,
+      });
+
+      try {
+        if (matchedRule.action === "block") {
+          await client.Fetch.failRequest({ requestId, errorReason: "BlockedByClient" });
+          return;
+        }
+
+        if (matchedRule.action === "mock") {
+          const responseCode = matchedRule.mockStatus ?? 200;
+          const headers = Object.entries(matchedRule.mockHeaders ?? { "content-type": "application/json" }).map(([name, value]) => ({
+            name,
+            value: String(value),
+          }));
+          const bodyBase64 = Buffer.from(matchedRule.mockBody ?? "{}").toString("base64");
+          await client.Fetch.fulfillRequest({
+            requestId,
+            responseCode,
+            responseHeaders: headers,
+            body: bodyBase64,
+          });
+          return;
+        }
+
+        if (matchedRule.action === "modify") {
+          const continueParams: any = { requestId };
+          if (matchedRule.newUrl) continueParams.url = matchedRule.newUrl;
+          if (matchedRule.newMethod) continueParams.method = matchedRule.newMethod;
+          if (matchedRule.modifyHeaders) {
+            continueParams.headers = Object.entries(matchedRule.modifyHeaders).map(([name, value]) => ({ name, value: String(value) }));
+          }
+          if (matchedRule.modifyPostData) {
+            continueParams.postData = Buffer.from(matchedRule.modifyPostData).toString("base64");
+          }
+          await client.Fetch.continueRequest(continueParams);
+          return;
+        }
+
+        await client.Fetch.continueRequest({ requestId });
+      } catch (_) {
+        try {
+          await client.Fetch.continueRequest({ requestId });
+        } catch (_) {}
+      }
+    });
+  }
+
+  private matchWildcard(pattern: string, text: string): boolean {
+    if (pattern === "*" || !pattern) return true;
+    const regexPattern = "^" + pattern
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*/g, ".*")
+      .replace(/\?/g, ".") + "$";
+    try {
+      return new RegExp(regexPattern, "i").test(text);
+    } catch (_) {
+      return text.includes(pattern);
+    }
   }
 
   private trimNetworkRecords(): void {

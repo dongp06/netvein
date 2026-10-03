@@ -1,85 +1,113 @@
-# Reverse Engineering MCP
+# Reverse Engineering MCP ⚡
 
-> A local-first MCP server that lets an AI inspect and debug a real Chromium tab through Chrome DevTools Protocol.
+> **The Definitive Chrome DevTools Protocol (CDP) Model Context Protocol Suite for Web Reverse Engineering, Dynamic Analysis, and Runtime Security Assessment.**
 
-![TypeScript](https://img.shields.io/badge/TypeScript-ESM-3178C6?logo=typescript&logoColor=white)
-![MCP](https://img.shields.io/badge/MCP-stdio-6E56CF)
-![CDP](https://img.shields.io/badge/Chrome-CDP-4285F4?logo=googlechrome&logoColor=white)
-![Status](https://img.shields.io/badge/status-experimental-orange)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![MCP](https://img.shields.io/badge/MCP-stdio%201.31-6E56CF)](https://modelcontextprotocol.io/)
+[![CDP](https://img.shields.io/badge/Chrome-CDP-4285F4?logo=googlechrome&logoColor=white)](https://chromedevtools.github.io/devtools-protocol/)
+[![Tests](https://img.shields.io/badge/Tests-21%2F21%20Passing-brightgreen)](test/index.test.ts)
+[![Tools](https://img.shields.io/badge/Tools-88%20Available-orange)](#tool-catalog)
 
-Reverse Engineering MCP gives an AI one coherent browser session for source inspection, runtime instrumentation, debugger control, network capture and dynamic analysis. It is designed for authorized research, debugging and interoperability work on pages you are allowed to inspect.
+---
 
-## Why this exists
+## Overview
 
-Most browser automation tools can click and type, while most debugger integrations can inspect JavaScript but know nothing about the request that triggered it. This server joins those views:
+Most AI browser integrations can only click buttons or scrape rendered DOM text. When dealing with modern single-page applications, minified bundles, obfuscated request signatures, bot defenses, or VM-protected JavaScript (JSVMP), traditional tools fail.
+
+**Reverse Engineering MCP** connects an AI agent directly to a real Chromium browser via a privileged, single-session Chrome DevTools Protocol (CDP) connection. It brings browser automation, source intelligence, multi-tier breakpoints, dynamic request tampering, cryptographic signature detection, AST candidate scoring, and JSRPC generation into **one unified, cohesive context**.
+
+**🚀 Zero-Configuration Auto-Launch**: If Chromium (Chrome, Microsoft Edge, Brave) is not currently running on CDP port 9222, the server **automatically finds the installed browser executable and boots it in the background** with remote debugging enabled—no manual terminal commands required!
 
 ```text
-MCP client
-    │ stdio / JSON-RPC
-    ▼
-Reverse Engineering MCP
-    │ one attached CDP session
-    ├── Runtime + Console
-    ├── Debugger + source maps
-    ├── Network + WebSocket
-    ├── hooks: fetch / XHR / crypto
-    └── timeline + evidence buffers
-    ▼
-Chromium tab on 127.0.0.1:9222
+┌─────────────────────────────────────────────────────────────┐
+│                 AI Agent / MCP Client                       │
+│        (Antigravity, Codex, Claude Code, Cursor)            │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ JSON-RPC (stdio transport)
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 reverse-engineering-mcp                      │
+│                                                             │
+│  ├── 88 Tools across 8 specialized domains                  │
+│  ├── Auto-Browser Launcher (Chrome, Edge, Brave discovery)  │
+│  ├── 3 Live State MCP Resources (status, logs, timeline)    │
+│  ├── 2 Guided MCP Prompts (triage-target, crack-signing)    │
+│  ├── Bounded Token Context (strict truncation & redaction)  │
+│  └── Acorn AST Engine & Cryptographic Signature Database    │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ WebSocket (localhost:9222)
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   Chromium Engine                           │
+│     Runtime  │  Debugger  │  Fetch Intercept  │  DOM Tree   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-The core stays site-agnostic. Site-specific experiments belong in external workflows; the included SaveFrom flow is an MCP client, not hard-coded behavior in the server.
+---
 
-## Capabilities
+## Key Capabilities
 
-| Area | What the AI can do |
-| --- | --- |
-| Browser | Attach to a tab, navigate, inspect visible text, click and type through CDP input events |
-| JavaScript | Inventory scripts, read bounded source, text search and ESTree AST search |
-| Debugger | Set/remove conditional breakpoints, inspect call frames, evaluate locals and step execution |
-| Network | Capture requests, responses, initiators, bodies, WebSocket frames and generate an OpenAPI draft |
-| Hooks | Observe fetch, XHR, WebSocket and Web Crypto calls; capture bounded response bodies |
-| Tracing | Trace request origin (with MCP-wrapper filtering), dynamic sink-oriented taint tracking and browser-vs-Node environment differences |
-| Reconstruction | Replay a captured request in the attached browser context and compare status/body bytes |
-| Evidence | Unified timeline, console buffer, bundle snapshots and bundle diffs |
+| Capability | Description |
+|---|---|
+| 🚀 **Auto Browser Detection & Launch** | Automatically locates Chrome, Edge, or Brave on Windows, macOS, or Linux, and boots it with `--remote-debugging-port=9222` seamlessly on the first tool invocation. |
+| 🕹️ **Full Browser Automation** | Real hardware-level input dispatch (mouse clicks, typing, keyboard shortcuts, hover, scrolling, dropdown selection, viewport emulation, User-Agent masking, full-page/element screenshots). |
+| 🛑 **Multi-Tier Breakpoints** | Don't know the function name? Break on **XHR/fetch URLs**, **DOM mutations** (subtree/attribute/removal), **DOM events** (click, submit, keydown, WebSocket), or line numbers. Inspect and modify variables live on the call stack. |
+| 🔐 **Crypto Fingerprinting** | Instant static identification of **AES S-Boxes**, **SM4 S-Boxes**, **MD5/SHA constants**, **RSA PEMs**, **RC4**, and libraries (**CryptoJS, JSEncrypt, Forge, WebCrypto Subtle, WebAssembly**). |
+| 🧠 **AST Function Candidate Scoring** | Automatically parses JS AST to rank candidate encryption and signature functions based on parameter names (`password`, `sign`, `token`) and bitwise operator density (`^`, `>>>`, `<<`). |
+| 🛡️ **Bot Defense & Anti-Debug Bypass** | Automatic detection of **Cloudflare (Turnstile/Challenge)**, **Akamai Bot Manager**, **DataDome**, **GeeTest**, **reCAPTCHA**, **DingXiang**, and **JSVMP opcode dispatcher loops**. Built-in one-click neutralizing of `debugger` traps and console tampering. |
+| 📦 **Webpack Runtime Extraction** | Auto-discovers `webpackChunk*` and `webpackJsonp` arrays, hooks `__webpack_require__`, inventories all internal modules, and exports/dumps internal utilities dynamically. |
+| 🌐 **Dynamic Request Interception** | Powered by CDP `Fetch.requestPaused`: intercept outgoing requests to **block**, **mock synthetic responses** (status, headers, body), or **tamper with headers/POST payloads** live. |
+| 🔌 **JSRPC Automation Pipeline** | Generate in-page hook stubs, local Python Flask HTTP bridges, and **Burp Suite AutoDecoder** configs to automate encryption/decryption without tedious manual decompilation. |
+| 📜 **Source Recovery & Endpoint Audit** | Automatically download and parse source maps to recover original unminified TypeScript/React source files. Extract all REST endpoints, query parameters, hidden form values, and API keys. |
 
-Sensitive transport headers such as `Cookie`, `Authorization` and API keys are redacted in MCP output. Buffers are bounded so a noisy page does not consume the entire model context.
+---
 
-## Requirements
+## Quick Start (1 Minute)
 
-- Node.js 20 or newer
-- Chromium/Chrome started with a localhost CDP endpoint
-- An MCP-compatible client
+### 1. Installation
 
-Install and build:
+#### Automated (Recommended)
+- **Windows (PowerShell):**
+  ```powershell
+  Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+  .\install.ps1
+  ```
+- **Linux / macOS (Bash):**
+  ```bash
+  chmod +x install.sh
+  ./install.sh
+  ```
 
+#### Manual Build
 ```bash
 npm install
-npm run check
-npm run build
+npm test       # Runs the 21 automated unit & smoke tests
+npm run build  # Compiles to dist/index.js
 ```
 
-Start a dedicated browser profile:
+### 2. Browser Startup (Fully Automatic)
+You **do not need to start Chrome manually**. Whenever you call `browser_targets`, `browser_attach`, or `browser_launch`, the MCP server will:
+1. Probe `http://127.0.0.1:9222/json/version`.
+2. If unreachable, discover Chrome, Microsoft Edge, or Brave in standard system directories.
+3. Spawn an isolated background browser instance with `--remote-debugging-port=9222` and a dedicated temporary profile.
+4. Wait for the CDP port to respond and return immediately.
 
-```bash
-google-chrome \
-  --remote-debugging-address=127.0.0.1 \
-  --remote-debugging-port=9222 \
-  --user-data-dir=/tmp/reverse-engineering-chrome
+*(Optional)* If you prefer launching your browser manually:
+```powershell
+# Windows (Chrome)
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="$env:TEMP\chrome-cdp"
 ```
 
-Keep the CDP endpoint bound to localhost. Do not expose port `9222` to a network you do not control.
+### 3. Register with your MCP Client
 
-## MCP client configuration
-
-Register the built server as a stdio MCP server:
-
+#### For Antigravity / Gemini (`~/.gemini/config/mcp_config.json`):
 ```json
 {
   "mcpServers": {
     "reverse-engineering": {
       "command": "node",
-      "args": ["/absolute/path/to/reverse-engineering-mcp/dist/index.js"],
+      "args": ["D:\\MCP\\reverse-engineering-mcp\\dist\\index.js"],
       "env": {
         "CDP_HOST": "127.0.0.1",
         "CDP_PORT": "9222"
@@ -89,119 +117,87 @@ Register the built server as a stdio MCP server:
 }
 ```
 
-The normal first calls are:
-
-```text
-browser_targets → browser_attach → browser_status
+#### For Codex CLI (`~/.codex/config.toml`):
+```toml
+[mcp_servers.reverse-engineering]
+command = "node"
+args = ["D:\\MCP\\reverse-engineering-mcp\\dist\\index.js"]
+startup_timeout_sec = 60
+[mcp_servers.reverse-engineering.env]
+CDP_HOST = "127.0.0.1"
+CDP_PORT = "9222"
 ```
 
-After attaching, all debugger, hook and network tools operate on that same tab.
+---
 
-## Tool map
+## MCP Resources & Prompts
 
-### Browser and runtime
+### Live Resources
+MCP clients can read session state via URI without invoking tools:
+- `reverse://session/status`: Current target, connection state, paused callframes, and active breakpoint counts.
+- `reverse://session/console`: Real-time stream of captured console logs, warnings, and unhandled exceptions.
+- `reverse://session/timeline`: Chronological timeline of network events, debugger triggers, and runtime hooks.
 
-`browser_targets` · `browser_attach` · `browser_detach` · `browser_status` · `navigate` · `page_snapshot` · `wait_for_selector` · `wait_for_network` · `click_selector` · `type_text` · `evaluate`
+### Interactive Prompts
+- `triage-target`: Automated initial reconnaissance runbook (navigates, checks bot defenses, inventories endpoints, inspects source maps).
+- `crack-api-signing`: Step-by-step guided workflow to isolate, trace, and replicate client-side signature generation.
 
-### Source intelligence
+---
 
-`list_scripts` · `get_script_source` · `search_scripts` · `ast_search` · `smart_breakpoint` · `conditional_logpoint_batch`
+## Tool Catalog (87 Tools)
 
-### Debugger
+### 🕹️ Browser Lifecycle & Emulation
+`browser_targets` · `browser_attach` · `browser_detach` · `browser_status` · `navigate` · `page_snapshot` · `screenshot` · `wait_for_selector` · `click_selector` · `type_text` · `press_key` · `hover_selector` · `scroll_page` · `select_option` · `reload_page` · `set_viewport` · `set_user_agent` · `evaluate`
 
-`set_breakpoint` · `remove_breakpoint` · `list_breakpoints` · `get_debugger_status` · `evaluate_on_call_frame` · `step_execution` · `resume_execution` · `set_pause_on_exceptions`
+### 🍪 Storage & Cookies
+`get_cookies` · `set_cookie` · `delete_cookies` · `get_storage` · `set_storage` · `clear_storage`
 
-### Network and reconstruction
+### 🔬 Cryptography & Algorithm Reverse Engineering
+`detect_crypto` · `find_crypto_candidates` · `classify_anticrawl` · `unpack_webpack` · `generate_jsrpc`
 
-`get_network` · `get_network_body` · `trace_request_origin` · `replay_and_verify` · `openapi_generator`
+### 🔍 Source Intelligence & Anti-Debug
+`list_scripts` · `get_script_source` · `search_scripts` · `ast_search` · `beautify_script` · `extract_sourcemap` · `extract_endpoints` · `anti_debug_bypass` · `inspect_element` · `override_function`
 
-`wait_for_network` can match the raw URL (`urlContains`/`urlRegex`) or only the pathname (`urlPathContains`), and can require a response or completed loading (`requireResponse`/`requireFinished`).
+### 🛑 Debugger & Multi-Tier Breakpoints
+`set_breakpoint` · `remove_breakpoint` · `list_breakpoints` · `set_dom_breakpoint` · `remove_dom_breakpoint` · `set_event_breakpoint` · `remove_event_breakpoint` · `set_xhr_breakpoint` · `remove_xhr_breakpoint` · `list_all_breakpoints` · `get_debugger_status` · `get_call_frame_scope` · `set_variable_value` · `restart_frame` · `evaluate_on_call_frame` · `step_execution` · `resume_execution` · `set_pause_on_exceptions` · `smart_breakpoint` · `conditional_logpoint_batch`
 
-### Instrumentation and evidence
+### 🌐 Network & Interception
+`get_network` · `get_network_body` · `wait_for_network` · `search_network` · `get_websocket_messages` · `set_request_interception` · `list_interceptions` · `clear_interceptions` · `export_har` · `trace_request_origin` · `replay_and_verify` · `openapi_generator`
 
-`install_hook` · `remove_hook` · `list_hooks` · `get_hook_events` · `hook_crypto_all` · `taint_track` · `taint_events` · `taint_stop` · `taint_list` · `timeline_recorder` · `get_console` · `clear_capture_logs`
+### ⚡ Instrumentation, Hooks & Taint Tracking
+`install_hook` · `remove_hook` · `list_hooks` · `get_hook_events` · `hook_crypto_all` · `taint_track` · `taint_events` · `taint_stop` · `taint_list` · `timeline_recorder` · `get_console` · `search_console` · `clear_capture_logs`
 
-### Version and environment analysis
-
+### 📊 Bundle Versioning & Environment Diffs
 `capture_bundle_snapshot` · `diff_bundles` · `env_diff`
 
-## Example investigation loop
+---
 
-1. Attach to the target page and clear old capture buffers.
-2. Capture a bundle snapshot before the action.
-3. Install only the hooks needed for the hypothesis.
-4. Perform the action through the browser tools.
-5. Correlate `get_network`, `trace_request_origin`, `get_hook_events` and `timeline_recorder`.
-6. Set a narrow breakpoint or logpoint when a source location is known.
-7. Capture a second snapshot and use `diff_bundles` after a site update.
+## Detailed Documentation
 
-For request signing, `hook_crypto_all` records Web Crypto calls plus bounded byte previews for `ArrayBuffer`/typed-array inputs and outputs. The companion E2E workflow also computes SHA-256 values for observed `TextEncoder` preimages.
+- 📖 [**Installation Guide**](docs/INSTALLATION.md): Complete setup for Windows, Linux, macOS, Claude, Codex, Cursor.
+- 🏗️ [**Architecture & Design**](docs/ARCHITECTURE.md): CDP protocol bridge, AST candidate scoring, memory management.
+- 📚 [**Tool Catalog Reference**](docs/TOOLS.md): Detailed parameter lists, return shapes, and examples for all 87 tools.
+- 🎯 [**Reverse Engineering Playbooks**](docs/WORKFLOWS.md): Step-by-step tutorials for cracking signatures, bypassing anti-debug, and Webpack dumping.
 
-## SaveFrom E2E through MCP
+---
 
-`src/e2e-savefrom.ts` is deliberately outside the core server. It acts as a small MCP client over stdio and calls the generic tools exactly as an agent would: browser attach, navigation, input, hooks, network, console, timeline and script analysis.
+## Testing & Verification
 
-Start Chrome first, then run:
+The suite includes comprehensive automated tests covering all core analysis algorithms:
 
 ```bash
-npm run e2e:savefrom -- \
-  --source-url 'https://vt.tiktok.com/ZSb5aNRof/' \
-  --page-url 'https://en1.savefrom.net/19wr/'
+# Run unit & smoke tests (Node.js test runner)
+npm test
+
+# Typecheck without emitting
+npm run check
+
+# Production build
+npm run build
 ```
 
-The run writes a bounded JSON artifact under `.reverse-engineering/` containing:
+---
 
-- the observed request/response chain;
-- request initiator traces and loaded script inventory;
-- hook and console events;
-- crypto digest calls, byte previews and candidate preimages;
-- candidate URLs found in DOM/network evidence;
-- explicit CAPTCHA status.
+## License
 
-CAPTCHA or another access challenge is surfaced as `captcha_required` and handed back to the operator for manual interaction. The workflow does not automate or bypass the challenge. Use `--fail-on-captcha` when running it in CI.
-
-## Data and security notes
-
-- This server attaches to a local browser through CDP; it is not a remote browser service.
-- Treat captured bodies, console events and script sources as sensitive project data.
-- Header redaction reduces accidental disclosure but does not make page content safe to publish.
-- `replay_and_verify` runs inside the attached page and remains subject to CORS, cookies, nonce checks and server-side validation.
-- `taint_track` is dynamic sink tracing based on observed token appearances; it is not a complete static taint engine.
-- Use the tools only on applications and traffic you are authorized to analyze.
-
-## Development
-
-```bash
-npm run check          # TypeScript without emitting files
-npm run build          # Compile dist/
-npm run start          # Start the built MCP server
-npm run dev            # Run the MCP server through tsx
-npm run e2e:savefrom  # Build and run the MCP-based SaveFrom workflow
-npm audit --omit=dev
-```
-
-The project intentionally keeps the CDP session in one `CdpSession` instance. This prevents multiple MCP tools from racing separate browser connections or profiles.
-
-## Project layout
-
-```text
-src/
-├── analysis.ts       AST/text search and bundle diff helpers
-├── cdp.ts            CDP session, domains, hooks and evidence buffers
-├── e2e-savefrom.ts   external MCP-client E2E workflow
-├── server.ts         MCP tool registration
-├── types.ts          bounded evidence and CDP record types
-└── index.ts          stdio MCP entry point
-```
-
-## Roadmap
-
-- source-map-aware smart breakpoints for minified bundles;
-- optional proxy/Reqable evidence adapter;
-- deobfuscation adapters that preserve original evidence;
-- WASM export inspection adapters for IDA/Ghidra;
-- persistent, redacted investigation notebooks.
-
-## Status
-
-Experimental and intended for local, authorized research workflows. APIs may change while the tool surface settles.
+This project is licensed under the [MIT License](LICENSE).

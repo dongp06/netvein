@@ -1,19 +1,31 @@
 {
   "name": "reverse-engineering-mcp",
-  "version": "0.1.0",
-  "private": true,
-  "description": "A Chrome CDP MCP server for authorized browser reverse engineering and dynamic analysis.",
+  "version": "0.2.0",
+  "description": "An advanced Chrome CDP MCP server for web reverse engineering, dynamic analysis, and runtime instrumentation.",
   "type": "module",
   "bin": {
-    "reverse-engineering-mcp": "dist/index.js"
+    "reverse-engineering-mcp": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
-    "e2e:savefrom": "npm run build && tsx src/e2e-savefrom.ts",
     "start": "node dist/index.js",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/index.test.ts"
   },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "reverse-engineering",
+    "chrome-devtools-protocol",
+    "cdp",
+    "ast",
+    "crypto",
+    "anti-debug",
+    "jsrpc"
+  ],
+  "license": "MIT",
+  "author": "dongp06",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",
     "acorn": "^8.18.0",

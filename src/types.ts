@@ -100,8 +100,97 @@ export interface HookEventRecord {
 export interface TimelineRecord {
   sequence: number;
   timestamp: string;
-  category: "console" | "network" | "websocket" | "debugger" | "hook" | "browser";
+  category: "console" | "network" | "websocket" | "debugger" | "hook" | "browser" | "interception";
   type: string;
   summary: string;
   data?: unknown;
 }
+
+export interface DomBreakpointRecord {
+  breakpointId: string;
+  nodeId: number;
+  selector: string;
+  type: "subtree-modified" | "attribute-modified" | "node-removed";
+  createdAt: string;
+}
+
+export interface EventBreakpointRecord {
+  eventName: string;
+  targetName?: string;
+  createdAt: string;
+}
+
+export interface XhrBreakpointRecord {
+  url: string;
+  createdAt: string;
+}
+
+export interface InterceptRule {
+  id: string;
+  urlPattern: string;
+  resourceType?: string;
+  action: "block" | "mock" | "modify" | "inspect";
+  mockStatus?: number;
+  mockHeaders?: Record<string, string>;
+  mockBody?: string;
+  modifyHeaders?: Record<string, string>;
+  modifyPostData?: string;
+  newUrl?: string;
+  newMethod?: string;
+  hitCount: number;
+  createdAt: string;
+}
+
+export interface CookieRecord {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires: number;
+  size: number;
+  httpOnly: boolean;
+  secure: boolean;
+  session: boolean;
+  sameSite?: string;
+}
+
+export interface StorageItem {
+  key: string;
+  value: string;
+}
+
+export interface CryptoMatch {
+  algorithm: string;
+  category: "hash" | "symmetric" | "asymmetric" | "national_secret" | "encoding" | "library";
+  confidence: "high" | "medium" | "low";
+  indicator: string;
+  line?: number;
+  column?: number;
+  snippet?: string;
+}
+
+export interface CryptoCandidate {
+  functionName?: string;
+  line: number;
+  column: number;
+  score: number;
+  matchedParameters: string[];
+  reasons: string[];
+  snippet: string;
+}
+
+export interface AnticrawlMatch {
+  vendor: string;
+  type: "bot_defense" | "captcha" | "anti_debug" | "jsvmp" | "fingerprinting";
+  confidence: "high" | "medium";
+  evidence: string;
+  details?: Record<string, unknown>;
+}
+
+export interface WebpackModuleInfo {
+  id: string | number;
+  name?: string;
+  isLoaded?: boolean;
+}
+
+
