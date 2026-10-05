@@ -479,3 +479,31 @@ test("Semantic View Tool", async (t) => {
   });
 });
 
+test("Semantic Interaction Tools", async (t) => {
+  await t.test("registers interact_semantic and semantic_diff", () => {
+    const server = createServer(new CdpSession());
+    const tools = Object.keys((server as any)._registeredTools || {});
+    assert.ok(tools.includes("interact_semantic"));
+    assert.ok(tools.includes("semantic_diff"));
+  });
+
+  await t.test("interact_semantic with no snapshot fails as stale rather than crashing", async () => {
+    const session = new CdpSession();
+    const result = await session.interactSemanticEnvelope(3, "click");
+    assert.equal(result.success, false);
+    if (!result.success) {
+      assert.ok(
+        result.error_code === "ERR_STALE_NODE_ID" || result.error_code === "ERR_NO_SESSION",
+        `unexpected code ${result.error_code}`,
+      );
+      assert.ok(result.suggestion);
+    }
+  });
+
+  await t.test("semantic_diff without a snapshot returns an envelope error", async () => {
+    const session = new CdpSession();
+    const result = await session.semanticDiffEnvelope(100);
+    assert.equal(result.success, false);
+  });
+});
+

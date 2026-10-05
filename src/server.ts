@@ -186,6 +186,47 @@ export function createServer(session: CdpSession): McpServer {
   );
 
   server.registerTool(
+    "interact_semantic",
+    {
+      title: "Act on a node by semantic id",
+      description:
+        "Click, type into, hover, focus or select a node using the short integer id from semantic_view. Do not construct CSS selectors or XPath. Pass snapshotVersion from semantic_view to have a stale id rejected instead of applied to the wrong element.",
+      inputSchema: {
+        id: z.number().int().min(1).describe("Integer id from the most recent semantic_view."),
+        action: z.enum(["click", "type", "hover", "select", "focus"]).describe("Interaction to perform."),
+        value: z.string().optional().describe("Text for 'type', or option value for 'select'."),
+        snapshotVersion: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe("Version returned by semantic_view. When supplied, a mismatched version is rejected."),
+      },
+    },
+    safeTool(
+      async (args: {
+        id: number;
+        action: "click" | "type" | "hover" | "select" | "focus";
+        value?: string;
+        snapshotVersion?: number;
+      }) => session.interactSemantic(args.id, args.action, args.value, args.snapshotVersion),
+    ),
+  );
+
+  server.registerTool(
+    "semantic_diff",
+    {
+      title: "Diff the semantic view since the last snapshot",
+      description:
+        "Re-read the accessibility tree and return only the nodes added, removed or changed since the previous snapshot. Use this instead of calling semantic_view again after every action.",
+      inputSchema: {
+        maxChanges: z.number().int().min(1).max(500).default(100).describe("Maximum entries per change category."),
+      },
+    },
+    safeTool(async (args: { maxChanges?: number }) => session.semanticDiff(args.maxChanges ?? 100)),
+  );
+
+  server.registerTool(
     "navigate",
     {
       title: "Navigate the page",

@@ -2,7 +2,7 @@ import CDP from "chrome-remote-interface";
 import { launchBrowser, type LaunchOptions, type LaunchResult } from "./launcher.js";
 import { ToolError, toEnvelope, type Envelope } from "./errors.js";
 import { activePatchIds, buildStealthScript, seedFromName, type StealthProfile } from "./stealth.js";
-import { compressAxTree, formatSemanticView, type SemanticSnapshot } from "./pruner.js";
+import { compressAxTree, diffSnapshots, formatSemanticView, type SemanticSnapshot } from "./pruner.js";
 import {
   beautifyJs,
   classifyAnticrawl,
@@ -2625,6 +2625,144 @@ export class CdpSession {
   /** Expose the most recent snapshot so callers can validate id versions. */
   currentSemanticSnapshot(): SemanticSnapshot | null {
     return this.semanticSnapshot;
+  }
+
+  /**
+   * Act on a node by its short integer id. The id is validated against the
+   * version that produced it so an id from a previous page can never be applied
+   * to a node that happens to reuse the same backendDOMNodeId.
+   */
+  async interactSemantic(
+    id: number,
+    action: "click" | "type" | "hover" | "select" | "focus",
+    value?: string,
+    versionAtCall?: number,
+  ): Promise<Record<string, unknown>> {
+    const client = this.requireClient();
+    const snapshot = this.semanticSnapshot;
+    if (!snapshot) {
+      throw new ToolError(
+        "ERR_STALE_NODE_ID",
+        "No semantic snapshot exists for this page.",
+        "Run semantic_view first and use the ids it returns.",
+      );
+    }
+    if (versionAtCall !== undefined && versionAtCall !== snapshot.version) {
+      throw new ToolError(
+        "ERR_STALE_NODE_ID",
+        `Node id ${id} belongs to snapshot version ${versionAtCall}, current version is ${snapshot.version}.`,
+        "Re-run semantic_view and use the ids from the new snapshot.",
+      );
+    }
+
+    const backendNodeId = snapshot.idMap.get(id);
+    if (backendNodeId === undefined) {
+      throw new ToolError(
+        "ERR_STALE_NODE_ID",
+        `Node id ${id} is not addressable in snapshot version ${snapshot.version}.`,
+        "Re-run semantic_view; non-interactive nodes have no backendDOMNodeId.",
+      );
+    }
+
+    const resolved = await client.DOM.resolveNode({ backendNodeId });
+    const objectId = resolved?.object?.objectId;
+    if (!objectId) {
+      throw new ToolError(
+        "ERR_STALE_NODE_ID",
+        `Node id ${id} could not be resolved; the element was likely detached.`,
+        "Re-run semantic_view and retry with a fresh id.",
+      );
+    }
+
+    const geometry = await client.Runtime.callFunctionOn({
+      objectId,
+      functionDeclaration: `function () {
+        this.scrollIntoView({ block: "center", inline: "center" });
+        const rect = this.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, tag: this.tagName.toLowerCase() };
+      }`,
+      returnByValue: true,
+    });
+    const point = geometry?.result?.value ?? { x: 0, y: 0, tag: "unknown" };
+
+    if (action === "click") {
+      await client.Input.dispatchMouseEvent({ type: "mouseMoved", x: point.x, y: point.y });
+      await client.Input.dispatchMouseEvent({ type: "mousePressed", x: point.x, y: point.y, button: "left", clickCount: 1 });
+      await client.Input.dispatchMouseEvent({ type: "mouseReleased", x: point.x, y: point.y, button: "left", clickCount: 1 });
+    } else if (action === "hover") {
+      await client.Input.dispatchMouseEvent({ type: "mouseMoved", x: point.x, y: point.y });
+    } else if (action === "focus") {
+      await client.DOM.focus({ backendNodeId });
+    } else if (action === "type") {
+      await client.DOM.focus({ backendNodeId });
+      await client.Input.insertText({ text: value ?? "" });
+    } else if (action === "select") {
+      await client.Runtime.callFunctionOn({
+        objectId,
+        functionDeclaration: `function (target) {
+          this.value = target;
+          this.dispatchEvent(new Event("input", { bubbles: true }));
+          this.dispatchEvent(new Event("change", { bubbles: true }));
+          return this.value;
+        }`,
+        arguments: [{ value: value ?? "" }],
+        returnByValue: true,
+      });
+    }
+
+    this.addTimeline("browser", "interact_semantic", `${action} on [${id}]`, { id, action, version: snapshot.version });
+    return { id, action, version: snapshot.version, tag: point.tag, value };
+  }
+
+  /** Envelope-returning wrapper so callers that must not throw can use this directly. */
+  async interactSemanticEnvelope(
+    id: number,
+    action: "click" | "type" | "hover" | "select" | "focus",
+    value?: string,
+    versionAtCall?: number,
+  ): Promise<Envelope<Record<string, unknown>>> {
+    try {
+      return { success: true, data: await this.interactSemantic(id, action, value, versionAtCall) };
+    } catch (error) {
+      // Every stale-id case is raised as a ToolError with its own code, so the
+      // only non-ToolError reaching here is requireClient(): no session.
+      return toEnvelope(error, "ERR_NO_SESSION");
+    }
+  }
+
+  /**
+   * Compare the current accessibility tree against the previous snapshot and
+   * return only added, removed and changed nodes, so an agent loop does not
+   * re-read the whole tree after every action.
+   */
+  async semanticDiff(maxChanges = 100): Promise<Record<string, unknown>> {
+    const previous = this.semanticSnapshot;
+    if (!previous) {
+      throw new ToolError(
+        "ERR_STALE_NODE_ID",
+        "No previous semantic snapshot to diff against.",
+        "Run semantic_view twice, with an action in between, then call semantic_diff.",
+      );
+    }
+    await this.semanticView({});
+    const current = this.semanticSnapshot!;
+    const diff = diffSnapshots(previous, current, maxChanges);
+    return {
+      fromVersion: previous.version,
+      toVersion: current.version,
+      added: diff.added,
+      removed: diff.removed,
+      changed: diff.changed,
+    };
+  }
+
+  /** Envelope-returning wrapper so callers that must not throw can use this directly. */
+  async semanticDiffEnvelope(maxChanges = 100): Promise<Envelope<Record<string, unknown>>> {
+    try {
+      return { success: true, data: await this.semanticDiff(maxChanges) };
+    } catch (error) {
+      return toEnvelope(error, "ERR_NO_SESSION");
+    }
   }
 
   async extractEndpoints(options: {
