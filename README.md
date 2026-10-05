@@ -6,8 +6,8 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-stdio%201.31-6E56CF)](https://modelcontextprotocol.io/)
 [![CDP](https://img.shields.io/badge/Chrome-CDP-4285F4?logo=googlechrome&logoColor=white)](https://chromedevtools.github.io/devtools-protocol/)
-[![Tests](https://img.shields.io/badge/Tests-21%2F21%20Passing-brightgreen)](test/index.test.ts)
-[![Tools](https://img.shields.io/badge/Tools-101%20Available-orange)](#tool-catalog)
+[![Tests](https://img.shields.io/badge/Tests-128%2F128%20Passing-brightgreen)](test/index.test.ts)
+[![Tools](https://img.shields.io/badge/Tools-102%20Available-orange)](#tool-catalog)
 
 ---
 
@@ -35,7 +35,7 @@ per-context proxy binding, and captcha detection. Captcha solving is out of scop
 ┌─────────────────────────────────────────────────────────────┐
 │                 reverse-engineering-mcp                      │
 │                                                             │
-│  ├── 101 Tools across 11 specialized domains                │
+│  ├── 102 Tools across 12 specialized domains                │
 │  ├── Auto-Browser Launcher (Chrome, Edge, Brave discovery)  │
 │  ├── 3 Live State MCP Resources (status, logs, timeline)    │
 │  ├── 2 Guided MCP Prompts (triage-target, crack-signing)    │
@@ -88,7 +88,7 @@ per-context proxy binding, and captcha detection. Captcha solving is out of scop
 #### Manual Build
 ```bash
 npm install
-npm test       # Runs the 21 automated unit & smoke tests
+npm test       # Runs the 128 automated unit & smoke tests
 npm run build  # Compiles to dist/index.js
 ```
 
@@ -150,7 +150,7 @@ MCP clients can read session state via URI without invoking tools:
 
 ---
 
-## Tool Catalog (101 Tools)
+## Tool Catalog (102 Tools)
 
 ### 🕹️ Browser Lifecycle & Emulation
 `browser_targets` · `browser_attach` · `browser_detach` · `browser_status` · `navigate` · `page_snapshot` · `screenshot` · `wait_for_selector` · `click_selector` · `type_text` · `press_key` · `hover_selector` · `scroll_page` · `select_option` · `reload_page` · `set_viewport` · `set_user_agent` · `evaluate`
@@ -182,7 +182,7 @@ MCP clients can read session state via URI without invoking tools:
 
 - 📖 [**Installation Guide**](docs/INSTALLATION.md): Complete setup for Windows, Linux, macOS, Claude, Codex, Cursor.
 - 🏗️ [**Architecture & Design**](docs/ARCHITECTURE.md): CDP protocol bridge, AST candidate scoring, memory management.
-- 📚 [**Tool Catalog Reference**](docs/TOOLS.md): Detailed parameter lists, return shapes, and examples for all 101 tools.
+- 📚 [**Tool Catalog Reference**](docs/TOOLS.md): Detailed parameter lists, return shapes, and examples for all 102 tools.
 - 🎯 [**Reverse Engineering Playbooks**](docs/WORKFLOWS.md): Step-by-step tutorials for cracking signatures, bypassing anti-debug, and Webpack dumping.
 
 ---

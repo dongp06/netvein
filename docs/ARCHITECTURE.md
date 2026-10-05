@@ -116,6 +116,23 @@ web storage serialize into one portable document for replay elsewhere.
 the model can correct itself on the next turn instead of the reasoning chain breaking.
 The 88 pre-existing tools keep their original error shape.
 
+### G. Update Checking
+
+`src/updater.ts` compares the local build against the git remote and reports the
+difference. It is **read-only by construction**: the module has no code path that
+downloads, writes to the repository, or executes remote content, so an update is always
+an explicit operator decision. `check_for_update` exposes it on demand and a
+non-blocking check runs at start-up.
+
+Two signals are reported, because neither is sufficient alone. Release tags give a
+version comparison but a repository may carry none — this one did not — so the tracked
+branch head is compared against local HEAD as well. Without a fetch the two heads
+cannot be ordered, so the result reports `branchDiffers` rather than claiming which
+side is ahead.
+
+The start-up report goes through MCP logging, never stdout: on a stdio transport stdout
+is the JSON-RPC channel and a stray line would corrupt the protocol.
+
 ---
 
 ## 3. Error Handling & Resilience

@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CdpSession } from "./cdp.js";
 import { loadConfig } from "./config.js";
 import { createServer } from "./server.js";
+import { checkForUpdate, defaultUpdateDeps, isUpdateCheckEnabled } from "./updater.js";
+import { VERSION } from "./version.js";
 
 function printHelp(): void {
   console.log(`
-Reverse Engineering MCP Server v0.2.0
+Reverse Engineering MCP Server v${VERSION}
 An advanced Chrome DevTools Protocol (CDP) server for web reverse engineering and dynamic analysis.
 
 Usage:
@@ -22,7 +25,33 @@ Environment Variables:
   CDP_HOST            Chrome DevTools host (default: 127.0.0.1)
   CDP_PORT            Chrome DevTools port (default: 9222)
   LOG_LEVEL           Logging verbosity (debug, info, warn, error)
+  REVERSE_MCP_UPDATE_CHECK           Set to 0 to disable the start-up update check
+  REVERSE_MCP_UPDATE_INTERVAL_HOURS  Hours between checks (default: 24)
   `.trim());
+}
+
+/**
+ * Non-blocking start-up update check. The report goes through MCP logging, with
+ * stderr as the fallback — never stdout, which is the JSON-RPC channel and would
+ * be corrupted by a stray line. Nothing here modifies the working tree.
+ */
+async function announceUpdateCheck(server: McpServer): Promise<void> {
+  if (!isUpdateCheckEnabled()) return;
+  try {
+    const result = await checkForUpdate(defaultUpdateDeps());
+    if (result.status !== "update-available") return;
+    const message = `A newer release is available: ${result.localVersion} -> ${result.remoteVersion}. ${result.updateUrl}`;
+    const host = server as unknown as {
+      server?: { sendLoggingMessage?: (params: unknown) => Promise<void> };
+    };
+    if (typeof host.server?.sendLoggingMessage === "function") {
+      await host.server.sendLoggingMessage({ level: "info", logger: "update-check", data: message });
+    } else {
+      console.error(`[reverse-engineering-mcp] ${message}`);
+    }
+  } catch {
+    // A failed check is never fatal and is never worth a line on stdout.
+  }
 }
 
 async function main(): Promise<void> {
@@ -32,7 +61,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
   if (args.includes("-v") || args.includes("--version")) {
-    console.log("0.2.0");
+    console.log(VERSION);
     process.exit(0);
   }
 
@@ -70,6 +99,8 @@ async function main(): Promise<void> {
   });
 
   await server.connect(transport);
+  // Deliberately not awaited: the client is already served while this runs.
+  void announceUpdateCheck(server);
 }
 
 main().catch((error) => {

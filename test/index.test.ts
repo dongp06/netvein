@@ -16,6 +16,7 @@ import { findBrowserExecutable } from "../src/launcher.js";
 import { compressAxTree, diffSnapshots, formatSemanticView } from "../src/pruner.js";
 import { createServer } from "../src/server.js";
 import { activePatchIds, buildStealthScript, createSeededPrng, seedFromName } from "../src/stealth.js";
+import { checkForUpdate, classifyUpdate, compareVersions, isCheckDue, parseVersion } from "../src/updater.js";
 
 test("Server & Tool Registration", async (t) => {
   await t.test("Initializes server with all tools, resources, and prompts", () => {
@@ -623,10 +624,10 @@ test("Captcha Tools", async (t) => {
 });
 
 test("Tool Surface Contract", async (t) => {
-  await t.test("server exposes exactly 101 tools", () => {
+  await t.test("server exposes exactly 102 tools", () => {
     const server = createServer(new CdpSession());
     const tools = Object.keys((server as any)._registeredTools || {});
-    assert.equal(tools.length, 101, `Expected 101 tools, got ${tools.length}`);
+    assert.equal(tools.length, 102, `Expected 102 tools, got ${tools.length}`);
   });
 
   await t.test("every new tool is registered", () => {
@@ -764,6 +765,190 @@ test("Final review fixes", async (t) => {
     const fields = registered.shape ?? registered;
     assert.equal(fields.snapshotVersion.safeParse(undefined).success, false);
     assert.equal(fields.snapshotVersion.safeParse(3).success, true);
+  });
+});
+
+test("Update Check", async (t) => {
+  const interval = 24 * 3600_000;
+  const baseDeps = {
+    localVersion: "0.3.0",
+    now: () => "2026-10-05T00:00:00.000Z",
+    readCache: async () => null,
+    writeCache: async () => {},
+    intervalMs: interval,
+  };
+
+  await t.test("parseVersion reads v-prefixed, bare and short semver tags", () => {
+    assert.deepEqual(parseVersion("v0.4.0"), [0, 4, 0]);
+    assert.deepEqual(parseVersion("0.4.0"), [0, 4, 0]);
+    assert.deepEqual(parseVersion("1.2"), [1, 2, 0]);
+  });
+
+  await t.test("parseVersion returns null for a non-version tag", () => {
+    assert.equal(parseVersion("nightly"), null);
+    assert.equal(parseVersion(""), null);
+    assert.equal(parseVersion("v"), null);
+  });
+
+  await t.test("compareVersions orders numerically, not lexically", () => {
+    assert.equal(compareVersions([0, 10, 0], [0, 9, 0]), 1);
+    assert.equal(compareVersions([0, 9, 0], [0, 10, 0]), -1);
+    assert.equal(compareVersions([1, 0, 0], [1, 0, 0]), 0);
+    assert.equal(compareVersions([1], [1, 0, 0]), 0);
+  });
+
+  await t.test("classifyUpdate reports an available update", () => {
+    const result = classifyUpdate("0.3.0", ["v0.3.0", "v0.4.0"]);
+    assert.equal(result.status, "update-available");
+    assert.equal(result.remoteVersion, "0.4.0");
+  });
+
+  await t.test("classifyUpdate reports up-to-date when local is the newest tag", () => {
+    assert.equal(classifyUpdate("0.4.0", ["v0.3.0", "v0.4.0"]).status, "up-to-date");
+  });
+
+  await t.test("classifyUpdate reports ahead when local is newer than every tag", () => {
+    assert.equal(classifyUpdate("0.5.0", ["v0.3.0", "v0.4.0"]).status, "ahead");
+  });
+
+  await t.test("classifyUpdate ignores unparsable tags", () => {
+    assert.equal(classifyUpdate("0.4.0", ["nightly", "v0.4.0"]).status, "up-to-date");
+  });
+
+  await t.test("classifyUpdate reports unknown when no tag parses", () => {
+    assert.equal(classifyUpdate("0.4.0", ["nightly", "latest"]).status, "unknown");
+  });
+
+  await t.test("isCheckDue is true with no previous check", () => {
+    assert.equal(isCheckDue(null, "2026-10-05T00:00:00.000Z", interval), true);
+  });
+
+  await t.test("isCheckDue is false inside the interval", () => {
+    assert.equal(isCheckDue("2026-10-05T00:00:00.000Z", "2026-10-05T01:00:00.000Z", interval), false);
+  });
+
+  await t.test("isCheckDue is true past the interval", () => {
+    assert.equal(isCheckDue("2026-10-05T00:00:00.000Z", "2026-10-06T01:00:00.000Z", interval), true);
+  });
+
+  await t.test("isCheckDue treats an unparsable timestamp as due", () => {
+    assert.equal(isCheckDue("not-a-date", "2026-10-05T00:00:00.000Z", interval), true);
+  });
+
+  await t.test("checkForUpdate reports an available update", async () => {
+    const result = await checkForUpdate({
+      ...baseDeps,
+      runLsRemote: async () => ["abc123\trefs/tags/v0.4.0", "def456\trefs/tags/v0.3.0"],
+    });
+    assert.equal(result.status, "update-available");
+    assert.equal(result.remoteVersion, "0.4.0");
+    assert.equal(result.localVersion, "0.3.0");
+  });
+
+  await t.test("checkForUpdate returns a network failure as unknown and never throws", async () => {
+    const result = await checkForUpdate({
+      ...baseDeps,
+      runLsRemote: async () => {
+        throw new Error("ETIMEDOUT");
+      },
+    });
+    assert.equal(result.status, "unknown");
+    assert.ok(result.detail && result.detail.length > 0);
+  });
+
+  await t.test("checkForUpdate throttles an unforced call inside the interval without calling out", async () => {
+    let called = false;
+    const result = await checkForUpdate({
+      ...baseDeps,
+      now: () => "2026-10-05T01:00:00.000Z",
+      readCache: async () => ({ checkedAt: "2026-10-05T00:00:00.000Z" }),
+      runLsRemote: async () => {
+        called = true;
+        return [];
+      },
+    });
+    assert.equal(called, false);
+    assert.equal(result.status, "throttled");
+  });
+
+  await t.test("checkForUpdate with force bypasses the throttle", async () => {
+    let called = false;
+    const result = await checkForUpdate({
+      ...baseDeps,
+      now: () => "2026-10-05T01:00:00.000Z",
+      readCache: async () => ({ checkedAt: "2026-10-05T00:00:00.000Z" }),
+      runLsRemote: async () => {
+        called = true;
+        return ["a\trefs/tags/v0.4.0"];
+      },
+      force: true,
+    });
+    assert.equal(called, true);
+    assert.equal(result.status, "update-available");
+  });
+
+  await t.test("checkForUpdate writes the check timestamp to the cache after a real check", async () => {
+    let written: { checkedAt: string } | null = null;
+    await checkForUpdate({
+      ...baseDeps,
+      runLsRemote: async () => ["a\trefs/tags/v0.3.0"],
+      writeCache: async (value) => {
+        written = value;
+      },
+    });
+    assert.ok(written);
+    assert.equal(written!.checkedAt, "2026-10-05T00:00:00.000Z");
+  });
+
+  await t.test("checkForUpdate reports branchDiffers when the remote head differs, even with no tags", async () => {
+    const result = await checkForUpdate({
+      ...baseDeps,
+      runLsRemote: async () => [],
+      runLsRemoteBranch: async () => "aaaa1111",
+      readLocalHead: async () => "bbbb2222",
+    });
+    assert.equal(result.branchDiffers, true);
+    assert.equal(result.remoteBranchHead, "aaaa1111");
+    assert.equal(result.localHead, "bbbb2222");
+    // No tags exist, so the version signal stays honest rather than guessing.
+    assert.equal(result.status, "unknown");
+  });
+
+  await t.test("checkForUpdate reports branchDiffers false when the heads match", async () => {
+    const result = await checkForUpdate({
+      ...baseDeps,
+      runLsRemote: async () => [],
+      runLsRemoteBranch: async () => "same9999",
+      readLocalHead: async () => "same9999",
+    });
+    assert.equal(result.branchDiffers, false);
+  });
+
+  await t.test("checkForUpdate omits branch fields when the branch probes are not provided", async () => {
+    const result = await checkForUpdate({
+      ...baseDeps,
+      runLsRemote: async () => ["a\trefs/tags/v0.4.0"],
+    });
+    assert.equal(result.branchDiffers, undefined);
+  });
+
+  await t.test("checkForUpdate survives a failing branch probe", async () => {
+    const result = await checkForUpdate({
+      ...baseDeps,
+      runLsRemote: async () => ["a\trefs/tags/v0.4.0"],
+      runLsRemoteBranch: async () => {
+        throw new Error("no upstream");
+      },
+      readLocalHead: async () => "bbbb2222",
+    });
+    assert.equal(result.status, "update-available");
+    assert.equal(result.branchDiffers, undefined);
+  });
+
+  await t.test("registers check_for_update as a new tool", () => {
+    const server = createServer(new CdpSession());
+    const tools = Object.keys((server as any)._registeredTools || {});
+    assert.ok(tools.includes("check_for_update"));
   });
 });
 

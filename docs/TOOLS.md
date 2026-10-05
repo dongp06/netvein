@@ -1,6 +1,6 @@
 # Tool Catalog & Reference Guide
 
-`reverse-engineering-mcp` exposes **101 tools** through the Model Context Protocol. All tools return standardized JSON-compatible responses and respect bounded buffer limits.
+`reverse-engineering-mcp` exposes **102 tools** through the Model Context Protocol. All tools return standardized JSON-compatible responses and respect bounded buffer limits.
 
 ---
 
@@ -179,3 +179,13 @@
 | `identity_import` | `json`, `name?` | Restore an exported identity. Validated in full before anything is written. |
 | `captcha_detect` | None | Detect Turnstile, hCaptcha, reCAPTCHA or GeeTest and report the evidence. Reports only. |
 | `captcha_provider_hook` | `provider`, `apiKey` | Register an external solving endpoint. Off by default. |
+
+---
+
+## 12. Maintenance
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `check_for_update` | `force?` | Compare this build against the project's git remote and report whether a newer release exists. Compares release tags **and** the tracked branch head, because the repository may carry no tags. Read-only: never downloads, replaces files, or executes remote content. |
+
+Disabled with `REVERSE_MCP_UPDATE_CHECK=0`; the interval is `REVERSE_MCP_UPDATE_INTERVAL_HOURS` (default 24). A non-blocking check also runs at start-up and reports through MCP logging.

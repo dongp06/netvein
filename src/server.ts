@@ -1,10 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { CdpSession } from "./cdp.js";
-import type { Envelope } from "./errors.js";
+import { ok, type Envelope } from "./errors.js";
 import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { registerResources } from "./resources.js";
 import { registerPrompts } from "./prompts.js";
+import { checkForUpdate, defaultUpdateDeps, isUpdateCheckEnabled } from "./updater.js";
+import { VERSION } from "./version.js";
 
 type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -58,7 +60,7 @@ export function createServer(session: CdpSession): McpServer {
   const server = new McpServer(
     {
       name: "reverse-engineering-mcp",
-      version: "0.3.0",
+      version: VERSION,
     },
     {
       instructions: SERVER_INSTRUCTIONS,
@@ -334,6 +336,29 @@ export function createServer(session: CdpSession): McpServer {
     envelopeTool(async (args: { provider: string; apiKey: string }) =>
       session.captchaProviderHookEnvelope(args.provider, args.apiKey),
     ),
+  );
+
+  server.registerTool(
+    "check_for_update",
+    {
+      title: "Check for a newer release",
+      description:
+        "Compare this build's version against the tags on the project's git remote and report whether a newer release exists. Read-only by design: it never downloads, replaces files, or executes remote content, so an update is always an explicit operator decision.",
+      inputSchema: {
+        force: z.boolean().default(false).describe("Bypass the check interval and query the remote now."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    envelopeTool(async (args: { force?: boolean }) => {
+      if (!isUpdateCheckEnabled()) {
+        return ok({
+          status: "disabled",
+          localVersion: VERSION,
+          detail: "Update checking is disabled by REVERSE_MCP_UPDATE_CHECK.",
+        });
+      }
+      return ok(await checkForUpdate(defaultUpdateDeps({ force: args.force ?? false })));
+    }),
   );
 
   server.registerTool(
