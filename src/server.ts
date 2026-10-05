@@ -126,6 +126,51 @@ export function createServer(session: CdpSession): McpServer {
   );
 
   server.registerTool(
+    "stealth_enable",
+    {
+      title: "Enable a stealth patch profile",
+      description:
+        "Install anti-detection patches on the attached target. Patches apply to the current document immediately and to every future document in this target. Profile 'basic' covers identity leaks; 'strict' adds canvas, WebGL and audio fingerprint noise plus Function.prototype.toString integrity.",
+      inputSchema: {
+        profile: z.enum(["off", "basic", "strict"]).default("basic").describe("Patch level. 'off' removes all patches."),
+        seed: z
+          .number()
+          .int()
+          .min(0)
+          .max(4294967295)
+          .optional()
+          .describe("Deterministic fingerprint seed. Omit to derive one from the attached target id."),
+      },
+    },
+    safeTool(async (args: { profile?: "off" | "basic" | "strict"; seed?: number }) =>
+      session.applyStealth(args.profile ?? "basic", args.seed),
+    ),
+  );
+
+  server.registerTool(
+    "stealth_status",
+    {
+      title: "Report the active stealth profile",
+      description: "Return the active stealth profile, the patch ids it activates, and whether a patch script is registered.",
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async () => session.stealthStatus()),
+  );
+
+  server.registerTool(
+    "stealth_probe",
+    {
+      title: "Probe the page for stealth leaks",
+      description:
+        "Run a detection suite in the attached page and report, per check, what still leaks and the observed value. Use this to detect when a stealth patch has gone stale.",
+      inputSchema: {
+        maxChars: z.number().int().min(1000).max(20000).default(20000).describe("Maximum characters returned."),
+      },
+    },
+    safeTool(async (args: { maxChars?: number }) => session.stealthProbe(args.maxChars ?? 20_000)),
+  );
+
+  server.registerTool(
     "navigate",
     {
       title: "Navigate the page",

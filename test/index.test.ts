@@ -332,3 +332,30 @@ test("Stealth Patch Generator", async (t) => {
   });
 });
 
+test("Stealth Tool Registration & Session Guards", async (t) => {
+  await t.test("registers the three stealth tools", () => {
+    const server = createServer(new CdpSession());
+    const tools = Object.keys((server as any)._registeredTools || {});
+    for (const name of ["stealth_enable", "stealth_status", "stealth_probe"]) {
+      assert.ok(tools.includes(name), `Missing tool: ${name}`);
+    }
+  });
+
+  await t.test("stealth_enable without an attached tab returns ERR_NO_SESSION", async () => {
+    const session = new CdpSession();
+    const result = await session.applyStealthEnvelope("strict");
+    assert.equal(result.success, false);
+    if (!result.success) {
+      assert.equal(result.error_code, "ERR_NO_SESSION");
+      assert.ok(result.suggestion);
+    }
+  });
+
+  await t.test("stealthStatus reports the active profile and patch ids without a tab", () => {
+    const session = new CdpSession();
+    const status = session.stealthStatus();
+    assert.equal(status.profile, "off");
+    assert.deepEqual(status.patchIds, []);
+  });
+});
+

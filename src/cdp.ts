@@ -1,5 +1,7 @@
 import CDP from "chrome-remote-interface";
 import { launchBrowser, type LaunchOptions, type LaunchResult } from "./launcher.js";
+import { ToolError, toEnvelope, type Envelope } from "./errors.js";
+import { activePatchIds, buildStealthScript, seedFromName, type StealthProfile } from "./stealth.js";
 import {
   beautifyJs,
   classifyAnticrawl,
@@ -612,6 +614,9 @@ export class CdpSession {
   private readonly interceptRules = new Map<string, InterceptRule>();
   private interceptionEnabled = false;
   private antiDebugBypassScriptId: string | null = null;
+  private stealthScriptId: string | null = null;
+  private stealthProfile: StealthProfile = "off";
+  private stealthSeed = 0;
   private readonly hooks = new Map<string, HookRecord>();
   private readonly taintTrackers = new Map<string, TaintTrackerRecord>();
   private readonly bundleSnapshots = new Map<string, Map<string, BundleScriptSnapshot>>();
@@ -2436,6 +2441,114 @@ export class CdpSession {
 
     this.addTimeline("debugger", "anti_debug_bypass", "Anti-debugging bypass enabled on target");
     return { active: true, scriptId: res.identifier };
+  }
+
+  /**
+   * Install a stealth patch profile on the attached target. Patches are registered
+   * for all future documents in this target, and applied to the current document
+   * immediately so the page does not need a reload.
+   */
+  async applyStealth(profile: StealthProfile, seed?: number): Promise<Record<string, unknown>> {
+    const client = this.requireClient();
+    const resolvedSeed = seed ?? (this.target?.id ? seedFromName(this.target.id) : 0);
+
+    if (this.stealthScriptId) {
+      try {
+        await client.Page.removeScriptToEvaluateOnNewDocument({ identifier: this.stealthScriptId });
+      } catch (_) {
+        // The document may already have been torn down; a stale registration is harmless.
+      }
+      this.stealthScriptId = null;
+    }
+
+    const script = buildStealthScript(profile, resolvedSeed);
+    if (script.length === 0) {
+      this.stealthProfile = "off";
+      this.stealthSeed = resolvedSeed;
+      return { profile: "off", patchIds: [], applied: false };
+    }
+
+    try {
+      const registration = await client.Page.addScriptToEvaluateOnNewDocument({ source: script });
+      this.stealthScriptId = registration.identifier;
+      await client.Runtime.evaluate({ expression: script, returnByValue: true });
+    } catch (error) {
+      throw new ToolError(
+        "ERR_STEALTH_PATCH_FAILED",
+        error instanceof Error ? error.message : String(error),
+        "Confirm a tab is attached with browser_attach, then retry stealth_enable.",
+      );
+    }
+
+    this.stealthProfile = profile;
+    this.stealthSeed = resolvedSeed;
+    this.addTimeline("browser", "stealth", `stealth: ${profile}`, { profile, seed: resolvedSeed });
+
+    return { profile, patchIds: activePatchIds(profile), seed: resolvedSeed, applied: true };
+  }
+
+  /** Envelope-returning wrapper so callers that must not throw can use this directly. */
+  async applyStealthEnvelope(profile: StealthProfile, seed?: number): Promise<Envelope<Record<string, unknown>>> {
+    try {
+      return { success: true, data: await this.applyStealth(profile, seed) };
+    } catch (error) {
+      return toEnvelope(error, "ERR_NO_SESSION");
+    }
+  }
+
+  /** Report the active stealth profile without performing any CDP I/O. */
+  stealthStatus(): { profile: StealthProfile; patchIds: string[]; seed: number; scriptRegistered: boolean } {
+    return {
+      profile: this.stealthProfile,
+      patchIds: activePatchIds(this.stealthProfile),
+      seed: this.stealthSeed,
+      scriptRegistered: this.stealthScriptId !== null,
+    };
+  }
+
+  /**
+   * Run a detection suite in the page and report what still leaks, per check.
+   * Each check returns the observed value so patch rot is visible rather than silent.
+   */
+  async stealthProbe(maxChars = MAX_STORED_TEXT): Promise<Record<string, unknown>> {
+    const client = this.requireClient();
+    void maxChars;
+    const expression = `(() => {
+      const checks = [];
+      const push = (id, passed, observed) => checks.push({ id, passed, observed });
+      try { push("webdriver", navigator.webdriver === undefined, String(navigator.webdriver)); }
+      catch (e) { push("webdriver", false, "threw: " + e.message); }
+      try { push("plugins", navigator.plugins && navigator.plugins.length > 0, String(navigator.plugins && navigator.plugins.length)); }
+      catch (e) { push("plugins", false, "threw: " + e.message); }
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = 64; canvas.height = 32;
+        const ctx = canvas.getContext("2d");
+        const noise = ctx.getImageData(0, 0, 64, 32).data;
+        push("canvas", noise.length === 64 * 32 * 4, "length=" + noise.length);
+      } catch (e) { push("canvas", false, "threw: " + e.message); }
+      try {
+        const gl = document.createElement("canvas").getContext("webgl");
+        push("webgl", Boolean(gl), gl ? String(gl.getParameter(37445)) : "no webgl context");
+      } catch (e) { push("webgl", false, "threw: " + e.message); }
+      const failed = checks.filter((c) => !c.passed).map((c) => c.id);
+      return { profile: ${JSON.stringify(this.stealthProfile)}, checks, failed };
+    })()`;
+    const result = await client.Runtime.evaluate({ expression, returnByValue: true });
+    const value = (result.result?.value ?? { profile: this.stealthProfile, checks: [], failed: [] }) as {
+      profile: StealthProfile;
+      checks: Array<{ id: string; passed: boolean; observed: string }>;
+      failed: string[];
+    };
+    return {
+      profile: value.profile,
+      failed: value.failed,
+      checks: value.checks.map((check) => ({
+        id: check.id,
+        passed: check.passed,
+        observed: truncate(check.observed, 200) ?? "",
+      })),
+    };
   }
 
   async extractEndpoints(options: {
