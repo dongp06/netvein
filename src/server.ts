@@ -291,6 +291,31 @@ export function createServer(session: CdpSession): McpServer {
   );
 
   server.registerTool(
+    "captcha_detect",
+    {
+      title: "Detect a captcha or bot challenge",
+      description:
+        "Inspect the current page for Cloudflare Turnstile, hCaptcha, reCAPTCHA or GeeTest, and report the vendor, evidence and challenge frames. This reports only; it does not solve. Use the result to decide whether to rotate identity or pause for a human.",
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async () => session.captchaDetect()),
+  );
+
+  server.registerTool(
+    "captcha_provider_hook",
+    {
+      title: "Register an external captcha provider",
+      description:
+        "Register an external solving endpoint. Off by default; no solving occurs until this is called with a provider and key. captcha_detect works without it.",
+      inputSchema: {
+        provider: z.string().min(1).describe("Provider identifier, for example '2captcha' or 'capsolver'."),
+        apiKey: z.string().min(1).describe("Provider API key."),
+      },
+    },
+    safeTool(async (args: { provider: string; apiKey: string }) => session.captchaProviderHook(args.provider, args.apiKey)),
+  );
+
+  server.registerTool(
     "navigate",
     {
       title: "Navigate the page",

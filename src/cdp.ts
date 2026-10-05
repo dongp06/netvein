@@ -629,6 +629,7 @@ export class CdpSession {
   private semanticSnapshot: SemanticSnapshot | null = null;
   private semanticVersionCounter = 0;
   private identities = new Map<string, IdentityRecord>();
+  private captchaProvider: { provider: string; apiKey: string } | null = null;
   private readonly hooks = new Map<string, HookRecord>();
   private readonly taintTrackers = new Map<string, TaintTrackerRecord>();
   private readonly bundleSnapshots = new Map<string, Map<string, BundleScriptSnapshot>>();
@@ -2944,6 +2945,78 @@ export class CdpSession {
     } catch (error) {
       return toEnvelope(error, "ERR_NO_IDENTITY");
     }
+  }
+
+  /**
+   * Detect a bot challenge on the current page and report it. This reports only;
+   * solving requires a provider registered through captcha_provider_hook.
+   */
+  async captchaDetect(): Promise<Record<string, unknown>> {
+    const client = this.requireClient();
+    const expression = `(() => {
+      const frames = [...document.querySelectorAll("iframe")].map((frame) => ({
+        src: frame.src,
+        title: frame.title,
+        width: frame.width,
+        height: frame.height,
+      }));
+      const html = document.documentElement ? document.documentElement.outerHTML.slice(0, 200000) : "";
+      return { url: location.href, title: document.title, html, frames };
+    })()`;
+    const result = await client.Runtime.evaluate({ expression, returnByValue: true });
+    const value = (result.result?.value ?? { url: "", title: "", html: "", frames: [] }) as {
+      url: string;
+      title: string;
+      html: string;
+      frames: Array<{ src: string; title: string; width: string; height: string }>;
+    };
+
+    const detections = classifyAnticrawl(String(value.html ?? ""));
+    const captchaVendors = detections.filter((entry) => entry.type === "captcha");
+    const challengeFrames = (value.frames ?? []).filter((frame) =>
+      /challenges\.cloudflare\.com|hcaptcha\.com|google\.com\/recaptcha|geetest/i.test(frame.src ?? ""),
+    );
+
+    const present = captchaVendors.length > 0 || challengeFrames.length > 0;
+    return {
+      detected: present,
+      vendors: captchaVendors.map((entry) => ({
+        vendor: entry.vendor,
+        confidence: entry.confidence,
+        evidence: entry.evidence,
+      })),
+      frames: challengeFrames,
+      solvingAvailable: this.captchaProvider !== null,
+      note: "captcha_detect reports only. Solving requires captcha_provider_hook with an external provider.",
+    };
+  }
+
+  /** Envelope-returning wrapper so callers that must not throw can use this directly. */
+  async captchaDetectEnvelope(): Promise<Envelope<Record<string, unknown>>> {
+    try {
+      return { success: true, data: await this.captchaDetect() };
+    } catch (error) {
+      return toEnvelope(error, "ERR_NO_SESSION");
+    }
+  }
+
+  /** Register an external solving endpoint. Inert until a caller supplies one. */
+  captchaProviderHook(provider: string, apiKey: string): Record<string, unknown> {
+    if (provider.length === 0 || apiKey.length === 0) {
+      throw new ToolError(
+        "ERR_CAPTCHA_PROVIDER_DISABLED",
+        "Both provider and apiKey are required to register a captcha provider.",
+        "Call captcha_provider_hook with the provider name and key, or rely on captcha_detect alone.",
+      );
+    }
+    this.captchaProvider = { provider, apiKey };
+    this.addTimeline("browser", "captcha_provider", `captcha provider: ${provider}`, { provider });
+    return { registered: true, provider };
+  }
+
+  captchaProviderStatus(): { registered: boolean; provider?: string } {
+    if (!this.captchaProvider) return { registered: false };
+    return { registered: true, provider: this.captchaProvider.provider };
   }
 
   async extractEndpoints(options: {

@@ -600,3 +600,56 @@ test("Identity Serialization", async (t) => {
   });
 });
 
+test("Captcha Tools", async (t) => {
+  await t.test("registers captcha_detect and captcha_provider_hook", () => {
+    const server = createServer(new CdpSession());
+    const tools = Object.keys((server as any)._registeredTools || {});
+    for (const name of ["captcha_detect", "captcha_provider_hook"]) {
+      assert.ok(tools.includes(name), `Missing tool: ${name}`);
+    }
+  });
+
+  await t.test("captcha_provider_hook is inert until called", () => {
+    const session = new CdpSession();
+    assert.deepEqual(session.captchaProviderStatus(), { registered: false });
+  });
+
+  await t.test("captcha_detect without an attached tab returns ERR_NO_SESSION", async () => {
+    const session = new CdpSession();
+    const result = await session.captchaDetectEnvelope();
+    assert.equal(result.success, false);
+    if (!result.success) assert.equal(result.error_code, "ERR_NO_SESSION");
+  });
+});
+
+test("Tool Surface Contract", async (t) => {
+  await t.test("server exposes exactly 101 tools", () => {
+    const server = createServer(new CdpSession());
+    const tools = Object.keys((server as any)._registeredTools || {});
+    assert.equal(tools.length, 101, `Expected 101 tools, got ${tools.length}`);
+  });
+
+  await t.test("every new tool is registered", () => {
+    const server = createServer(new CdpSession());
+    const tools = Object.keys((server as any)._registeredTools || {});
+    const expected = [
+      "stealth_enable",
+      "stealth_status",
+      "stealth_probe",
+      "semantic_view",
+      "interact_semantic",
+      "semantic_diff",
+      "identity_create",
+      "identity_use",
+      "identity_list",
+      "identity_export",
+      "identity_import",
+      "captcha_detect",
+      "captcha_provider_hook",
+    ];
+    for (const name of expected) {
+      assert.ok(tools.includes(name), `Missing new tool: ${name}`);
+    }
+  });
+});
+
