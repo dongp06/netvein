@@ -3,6 +3,7 @@ import { launchBrowser, type LaunchOptions, type LaunchResult } from "./launcher
 import { ToolError, toEnvelope, type Envelope } from "./errors.js";
 import { activePatchIds, buildStealthScript, seedFromName, type StealthProfile } from "./stealth.js";
 import { compressAxTree, diffSnapshots, formatSemanticView, type SemanticSnapshot } from "./pruner.js";
+import { parseProxyServer, probeProxy, type IdentityRecord } from "./identity.js";
 import {
   beautifyJs,
   classifyAnticrawl,
@@ -620,6 +621,7 @@ export class CdpSession {
   private stealthSeed = 0;
   private semanticSnapshot: SemanticSnapshot | null = null;
   private semanticVersionCounter = 0;
+  private identities = new Map<string, IdentityRecord>();
   private readonly hooks = new Map<string, HookRecord>();
   private readonly taintTrackers = new Map<string, TaintTrackerRecord>();
   private readonly bundleSnapshots = new Map<string, Map<string, BundleScriptSnapshot>>();
@@ -2763,6 +2765,98 @@ export class CdpSession {
     } catch (error) {
       return toEnvelope(error, "ERR_NO_SESSION");
     }
+  }
+
+  /**
+   * Create an isolated browser context, optionally bound to a proxy. The proxy is
+   * verified with a TCP probe before the context is created, so a bad proxy fails
+   * at creation rather than mid-navigation.
+   */
+  async createIdentity(options: { name: string; proxy?: string; seed?: number }): Promise<IdentityRecord> {
+    // Validate and probe the proxy before touching the session. A bad proxy must
+    // fail as ERR_PROXY_UNREACHABLE whether or not a tab is attached, and no
+    // identity is registered on failure.
+    let proxyServer: string | undefined;
+    if (options.proxy) {
+      try {
+        proxyServer = parseProxyServer(options.proxy);
+      } catch (error) {
+        throw new ToolError(
+          "ERR_PROXY_UNREACHABLE",
+          error instanceof Error ? error.message : String(error),
+          "Pass a proxy as host:port.",
+        );
+      }
+      try {
+        await probeProxy(proxyServer);
+      } catch (error) {
+        throw new ToolError(
+          "ERR_PROXY_UNREACHABLE",
+          error instanceof Error ? error.message : String(error),
+          "Confirm the proxy is running and reachable from this host.",
+        );
+      }
+    }
+
+    const client = this.requireClient();
+
+    if (this.identities.has(options.name)) {
+      throw new ToolError(
+        "ERR_NO_IDENTITY",
+        `An identity named "${options.name}" already exists.`,
+        "Choose another name or call identity_use to switch to it.",
+      );
+    }
+
+    const created = await client.Target.createBrowserContext(
+      proxyServer ? { proxyServer, proxyBypassList: ["127.0.0.1", "localhost"] } : {},
+    );
+
+    const record: IdentityRecord = {
+      name: options.name,
+      browserContextId: created?.browserContextId ?? null,
+      proxy: proxyServer,
+      seed: options.seed ?? seedFromName(options.name),
+      createdAt: new Date().toISOString(),
+      usable: true,
+    };
+    this.identities.set(options.name, record);
+    this.addTimeline("browser", "identity_create", `identity: ${options.name}`, { proxy: proxyServer });
+    return record;
+  }
+
+  /** Envelope-returning wrapper so callers that must not throw can use this directly. */
+  async createIdentityEnvelope(options: {
+    name: string;
+    proxy?: string;
+    seed?: number;
+  }): Promise<Envelope<IdentityRecord>> {
+    try {
+      return { success: true, data: await this.createIdentity(options) };
+    } catch (error) {
+      return toEnvelope(error, "ERR_PROXY_UNREACHABLE");
+    }
+  }
+
+  /** Mark an identity active and apply its seed to the stealth layer. */
+  async useIdentity(name: string): Promise<Record<string, unknown>> {
+    const record = this.identities.get(name);
+    if (!record) {
+      throw new ToolError(
+        "ERR_NO_IDENTITY",
+        `No identity named "${name}".`,
+        "Call identity_list, then identity_create, then identity_use.",
+      );
+    }
+    if (!record.usable) {
+      throw new ToolError("ERR_NO_IDENTITY", `Identity "${name}" is quarantined.`, "Create a fresh identity.");
+    }
+    await this.applyStealth(this.stealthProfile === "off" ? "basic" : this.stealthProfile, record.seed);
+    return { name: record.name, proxy: record.proxy, seed: record.seed, browserContextId: record.browserContextId };
+  }
+
+  listIdentities(): IdentityRecord[] {
+    return [...this.identities.values()];
   }
 
   async extractEndpoints(options: {

@@ -11,6 +11,7 @@ import {
 } from "../src/analysis.js";
 import { CdpSession } from "../src/cdp.js";
 import { DEFAULT_SUGGESTIONS, ERROR_CODES, ToolError, err, ok, toEnvelope } from "../src/errors.js";
+import { parseProxyServer } from "../src/identity.js";
 import { findBrowserExecutable } from "../src/launcher.js";
 import { compressAxTree, diffSnapshots, formatSemanticView } from "../src/pruner.js";
 import { createServer } from "../src/server.js";
@@ -504,6 +505,44 @@ test("Semantic Interaction Tools", async (t) => {
     const session = new CdpSession();
     const result = await session.semanticDiffEnvelope(100);
     assert.equal(result.success, false);
+  });
+});
+
+test("Identity Module", async (t) => {
+  await t.test("parseProxyServer accepts host:port", () => {
+    assert.equal(parseProxyServer("127.0.0.1:8080"), "127.0.0.1:8080");
+  });
+
+  await t.test("parseProxyServer accepts scheme://host:port and strips the scheme", () => {
+    assert.equal(parseProxyServer("http://127.0.0.1:8080"), "127.0.0.1:8080");
+    assert.equal(parseProxyServer("socks5://10.0.0.1:1080"), "10.0.0.1:1080");
+  });
+
+  await t.test("parseProxyServer rejects a string without a port", () => {
+    assert.throws(() => parseProxyServer("127.0.0.1"), /host:port/);
+  });
+
+  await t.test("parseProxyServer rejects an out-of-range port", () => {
+    assert.throws(() => parseProxyServer("127.0.0.1:99999"), /host:port/);
+  });
+
+  await t.test("registers the three identity tools", () => {
+    const server = createServer(new CdpSession());
+    const tools = Object.keys((server as any)._registeredTools || {});
+    for (const name of ["identity_create", "identity_use", "identity_list"]) {
+      assert.ok(tools.includes(name), `Missing tool: ${name}`);
+    }
+  });
+
+  await t.test("identity_create with an unreachable proxy reports ERR_PROXY_UNREACHABLE and registers nothing", async () => {
+    const session = new CdpSession();
+    const result = await session.createIdentityEnvelope({
+      name: "probe-fail",
+      proxy: "127.0.0.1:1",
+    });
+    assert.equal(result.success, false);
+    if (!result.success) assert.equal(result.error_code, "ERR_PROXY_UNREACHABLE");
+    assert.equal(session.listIdentities().length, 0);
   });
 });
 

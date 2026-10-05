@@ -227,6 +227,43 @@ export function createServer(session: CdpSession): McpServer {
   );
 
   server.registerTool(
+    "identity_create",
+    {
+      title: "Create an isolated browser identity",
+      description:
+        "Create a browser context isolated from other identities, optionally bound to a proxy at the context level so the proxy covers every socket including subresources and WebSocket. A proxy is TCP-probed before the context is created.",
+      inputSchema: {
+        name: z.string().min(1).describe("Unique identity name."),
+        proxy: z.string().optional().describe("Proxy in host:port or scheme://host:port form."),
+        seed: z.number().int().min(0).max(4294967295).optional().describe("Fingerprint seed. Defaults to a hash of the name."),
+      },
+    },
+    safeTool(async (args: { name: string; proxy?: string; seed?: number }) => session.createIdentity(args)),
+  );
+
+  server.registerTool(
+    "identity_use",
+    {
+      title: "Activate an identity",
+      description: "Mark an identity active and apply its fingerprint seed to the stealth layer.",
+      inputSchema: {
+        name: z.string().min(1).describe("Identity name from identity_list."),
+      },
+    },
+    safeTool(async (args: { name: string }) => session.useIdentity(args.name)),
+  );
+
+  server.registerTool(
+    "identity_list",
+    {
+      title: "List identities",
+      description: "List created identities with their proxy binding, seed and usability.",
+      annotations: { readOnlyHint: true },
+    },
+    safeTool(async () => session.listIdentities()),
+  );
+
+  server.registerTool(
     "navigate",
     {
       title: "Navigate the page",
