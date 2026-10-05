@@ -2,6 +2,7 @@ import CDP from "chrome-remote-interface";
 import { launchBrowser, type LaunchOptions, type LaunchResult } from "./launcher.js";
 import { ToolError, toEnvelope, type Envelope } from "./errors.js";
 import { activePatchIds, buildStealthScript, seedFromName, type StealthProfile } from "./stealth.js";
+import { compressAxTree, formatSemanticView, type SemanticSnapshot } from "./pruner.js";
 import {
   beautifyJs,
   classifyAnticrawl,
@@ -617,6 +618,8 @@ export class CdpSession {
   private stealthScriptId: string | null = null;
   private stealthProfile: StealthProfile = "off";
   private stealthSeed = 0;
+  private semanticSnapshot: SemanticSnapshot | null = null;
+  private semanticVersionCounter = 0;
   private readonly hooks = new Map<string, HookRecord>();
   private readonly taintTrackers = new Map<string, TaintTrackerRecord>();
   private readonly bundleSnapshots = new Map<string, Map<string, BundleScriptSnapshot>>();
@@ -2551,6 +2554,79 @@ export class CdpSession {
     };
   }
 
+  /**
+   * Read the accessibility tree, compress it, and assign short integer ids.
+   * The id map is invalidated by navigation and by DOM.documentUpdated, which
+   * the event handlers already observe.
+   */
+  async semanticView(options: {
+    interactiveOnly?: boolean;
+    maxNodes?: number;
+    maxChars?: number;
+  } = {}): Promise<Record<string, unknown>> {
+    const client = this.requireClient();
+
+    let nodes: unknown;
+    try {
+      await client.Accessibility.enable();
+      const result = await client.Accessibility.getFullAXTree({});
+      nodes = result?.nodes;
+    } catch (error) {
+      throw new ToolError(
+        "ERR_AX_TREE_UNAVAILABLE",
+        error instanceof Error ? error.message : String(error),
+        "The accessibility tree is unavailable on about:blank, PDF viewers and crashed renderers. Navigate to a real page first.",
+      );
+    }
+
+    if (!Array.isArray(nodes) || nodes.length === 0) {
+      throw new ToolError(
+        "ERR_AX_TREE_UNAVAILABLE",
+        "The accessibility tree returned no nodes.",
+        "Navigate to a real page and retry semantic_view.",
+      );
+    }
+
+    this.semanticVersionCounter += 1;
+    const snapshot = compressAxTree(nodes as never, {
+      version: this.semanticVersionCounter,
+      interactiveOnly: options.interactiveOnly ?? false,
+      maxNodes: options.maxNodes ?? 300,
+    });
+    this.semanticSnapshot = snapshot;
+
+    const maxChars = Math.min(Math.max(options.maxChars ?? MAX_STORED_TEXT, 1000), MAX_STORED_TEXT);
+    const text = truncate(formatSemanticView(snapshot), maxChars) ?? "";
+
+    this.addTimeline("browser", "semantic_view", `semantic_view v${snapshot.version}`, {
+      version: snapshot.version,
+      nodes: snapshot.nodes.length,
+      truncated: snapshot.truncated,
+    });
+
+    return { version: snapshot.version, nodeCount: snapshot.nodes.length, truncated: snapshot.truncated, view: text };
+  }
+
+  /** Envelope-returning wrapper so callers that must not throw can use this directly. */
+  async semanticViewEnvelope(options: {
+    interactiveOnly?: boolean;
+    maxNodes?: number;
+    maxChars?: number;
+  } = {}): Promise<Envelope<Record<string, unknown>>> {
+    try {
+      return { success: true, data: await this.semanticView(options) };
+    } catch (error) {
+      // AX-unavailable is always raised as a ToolError, so the only non-ToolError
+      // reaching here is requireClient(), which means no session.
+      return toEnvelope(error, "ERR_NO_SESSION");
+    }
+  }
+
+  /** Expose the most recent snapshot so callers can validate id versions. */
+  currentSemanticSnapshot(): SemanticSnapshot | null {
+    return this.semanticSnapshot;
+  }
+
   async extractEndpoints(options: {
     scriptId?: string;
     includeNetworkHistory?: boolean;
@@ -3319,6 +3395,11 @@ export class CdpSession {
     client.on("disconnect", () => {
       this.client = null;
       this.pauseState = null;
+    });
+
+    client.DOM.on("documentUpdated", () => {
+      // The document was replaced, so every node id from the previous snapshot is stale.
+      this.semanticSnapshot = null;
     });
 
     client.Runtime.on("consoleAPICalled", (params: any) => {

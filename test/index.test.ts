@@ -460,3 +460,22 @@ test("Semantic Pruner", async (t) => {
   });
 });
 
+test("Semantic View Tool", async (t) => {
+  await t.test("registers semantic_view", () => {
+    const server = createServer(new CdpSession());
+    const tools = Object.keys((server as any)._registeredTools || {});
+    assert.ok(tools.includes("semantic_view"));
+  });
+
+  await t.test("semantic_view without an attached tab returns ERR_NO_SESSION", async () => {
+    const session = new CdpSession();
+    const result = await session.semanticViewEnvelope({});
+    assert.equal(result.success, false);
+    if (!result.success) assert.equal(result.error_code, "ERR_NO_SESSION");
+  });
+
+  await t.test("currentSemanticSnapshot is null before the first call", () => {
+    assert.equal(new CdpSession().currentSemanticSnapshot(), null);
+  });
+});
+

@@ -171,6 +171,21 @@ export function createServer(session: CdpSession): McpServer {
   );
 
   server.registerTool(
+    "semantic_view",
+    {
+      title: "Pruned semantic view of the page",
+      description:
+        "Return a compressed accessibility tree with short integer ids instead of raw HTML. Costs roughly 1-2k tokens where a raw DOM dump costs orders of magnitude more. Ids are valid until the page navigates or the DOM changes; a stale id returns ERR_STALE_NODE_ID.",
+      inputSchema: {
+        interactiveOnly: z.boolean().default(false).describe("Keep only actionable roles (button, link, textbox, checkbox, ...)."),
+        maxNodes: z.number().int().min(1).max(2000).default(300).describe("Maximum nodes returned."),
+        maxChars: z.number().int().min(1000).max(20000).default(20000).describe("Maximum characters in the rendered view."),
+      },
+    },
+    safeTool(async (args: { interactiveOnly?: boolean; maxNodes?: number; maxChars?: number }) => session.semanticView(args)),
+  );
+
+  server.registerTool(
     "navigate",
     {
       title: "Navigate the page",
