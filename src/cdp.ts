@@ -3,7 +3,14 @@ import { launchBrowser, type LaunchOptions, type LaunchResult } from "./launcher
 import { ToolError, toEnvelope, type Envelope } from "./errors.js";
 import { activePatchIds, buildStealthScript, seedFromName, type StealthProfile } from "./stealth.js";
 import { compressAxTree, diffSnapshots, formatSemanticView, type SemanticSnapshot } from "./pruner.js";
-import { parseProxyServer, probeProxy, type IdentityRecord } from "./identity.js";
+import {
+  parseIdentityPayload,
+  parseProxyServer,
+  probeProxy,
+  serializeIdentity,
+  type IdentityPayload,
+  type IdentityRecord,
+} from "./identity.js";
 import {
   beautifyJs,
   classifyAnticrawl,
@@ -2857,6 +2864,86 @@ export class CdpSession {
 
   listIdentities(): IdentityRecord[] {
     return [...this.identities.values()];
+  }
+
+  /** Serialize cookies and web storage for an identity into a portable document. */
+  async exportIdentity(name: string): Promise<IdentityPayload> {
+    const record = this.identities.get(name);
+    if (!record) {
+      throw new ToolError(
+        "ERR_NO_IDENTITY",
+        `No identity named "${name}".`,
+        "Use identity_list to see available identities.",
+      );
+    }
+    const cookies = await this.getCookies();
+    const storage = await this.getStorage("both");
+    return serializeIdentity(record.name, record.proxy, cookies, storage.localStorage ?? {}, storage.sessionStorage ?? {});
+  }
+
+  /** Envelope-returning wrapper so callers that must not throw can use this directly. */
+  async exportIdentityEnvelope(name: string): Promise<Envelope<IdentityPayload>> {
+    try {
+      return { success: true, data: await this.exportIdentity(name) };
+    } catch (error) {
+      return toEnvelope(error, "ERR_NO_IDENTITY");
+    }
+  }
+
+  /**
+   * Restore an exported identity. The payload is validated in full before any
+   * cookie or storage write happens, so a malformed payload applies nothing.
+   */
+  async importIdentity(json: string, name?: string): Promise<Record<string, unknown>> {
+    const payload = parseIdentityPayload(json);
+    const targetName = name ?? payload.name;
+
+    await this.clearStorage("all");
+
+    let cookiesApplied = 0;
+    for (const cookie of payload.cookies) {
+      try {
+        await this.setCookie(cookie);
+        cookiesApplied += 1;
+      } catch (_) {
+        // A cookie whose domain no longer resolves is skipped rather than aborting the restore.
+      }
+    }
+
+    for (const [key, value] of Object.entries(payload.localStorage)) {
+      await this.setStorage("local", key, value);
+    }
+    for (const [key, value] of Object.entries(payload.sessionStorage)) {
+      await this.setStorage("session", key, value);
+    }
+
+    const existing = this.identities.get(targetName);
+    const record: IdentityRecord = existing ?? {
+      name: targetName,
+      browserContextId: null,
+      proxy: payload.proxy,
+      seed: seedFromName(targetName),
+      createdAt: new Date().toISOString(),
+      usable: true,
+    };
+    this.identities.set(targetName, record);
+
+    this.addTimeline("browser", "identity_import", `identity import: ${targetName}`, {
+      cookies: cookiesApplied,
+      localStorage: Object.keys(payload.localStorage).length,
+      sessionStorage: Object.keys(payload.sessionStorage).length,
+    });
+
+    return { name: targetName, cookiesApplied, localStorageApplied: Object.keys(payload.localStorage).length };
+  }
+
+  /** Envelope-returning wrapper so callers that must not throw can use this directly. */
+  async importIdentityEnvelope(json: string, name?: string): Promise<Envelope<Record<string, unknown>>> {
+    try {
+      return { success: true, data: await this.importIdentity(json, name) };
+    } catch (error) {
+      return toEnvelope(error, "ERR_NO_IDENTITY");
+    }
   }
 
   async extractEndpoints(options: {

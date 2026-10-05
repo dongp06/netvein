@@ -11,7 +11,7 @@ import {
 } from "../src/analysis.js";
 import { CdpSession } from "../src/cdp.js";
 import { DEFAULT_SUGGESTIONS, ERROR_CODES, ToolError, err, ok, toEnvelope } from "../src/errors.js";
-import { parseProxyServer } from "../src/identity.js";
+import { parseIdentityPayload, parseProxyServer, serializeIdentity } from "../src/identity.js";
 import { findBrowserExecutable } from "../src/launcher.js";
 import { compressAxTree, diffSnapshots, formatSemanticView } from "../src/pruner.js";
 import { createServer } from "../src/server.js";
@@ -543,6 +543,60 @@ test("Identity Module", async (t) => {
     assert.equal(result.success, false);
     if (!result.success) assert.equal(result.error_code, "ERR_PROXY_UNREACHABLE");
     assert.equal(session.listIdentities().length, 0);
+  });
+});
+
+test("Identity Serialization", async (t) => {
+  const sampleCookies = [
+    {
+      name: "sid",
+      value: "abc",
+      domain: ".example.com",
+      path: "/",
+      expires: 0,
+      size: 3,
+      httpOnly: true,
+      secure: true,
+      session: true,
+    },
+  ];
+
+  await t.test("serializeIdentity produces a parseable payload", () => {
+    const payload = serializeIdentity("alpha", "host:3128", sampleCookies, { theme: "dark" }, { tab: "1" });
+    const json = JSON.stringify(payload);
+    const parsed = parseIdentityPayload(json);
+    assert.equal(parsed.name, "alpha");
+    assert.equal(parsed.proxy, "host:3128");
+    assert.equal(parsed.cookies.length, 1);
+    assert.equal(parsed.localStorage.theme, "dark");
+    assert.equal(parsed.sessionStorage.tab, "1");
+  });
+
+  await t.test("parseIdentityPayload rejects invalid JSON", () => {
+    assert.throws(() => parseIdentityPayload("{not json"), /not valid JSON/);
+  });
+
+  await t.test("parseIdentityPayload rejects a payload missing cookies", () => {
+    assert.throws(() => parseIdentityPayload('{"name":"x"}'), /cookies/);
+  });
+
+  await t.test("parseIdentityPayload rejects a payload missing name", () => {
+    assert.throws(() => parseIdentityPayload('{"cookies":[]}'), /name/);
+  });
+
+  await t.test("registers the two identity transfer tools", () => {
+    const server = createServer(new CdpSession());
+    const tools = Object.keys((server as any)._registeredTools || {});
+    for (const name of ["identity_export", "identity_import"]) {
+      assert.ok(tools.includes(name), `Missing tool: ${name}`);
+    }
+  });
+
+  await t.test("identity_import with a malformed payload returns an envelope error and applies nothing", async () => {
+    const session = new CdpSession();
+    const result = await session.importIdentityEnvelope("{not json");
+    assert.equal(result.success, false);
+    if (!result.success) assert.ok(result.message.length > 0);
   });
 });
 

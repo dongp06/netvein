@@ -264,6 +264,33 @@ export function createServer(session: CdpSession): McpServer {
   );
 
   server.registerTool(
+    "identity_export",
+    {
+      title: "Export an identity",
+      description:
+        "Serialize an identity's cookies, localStorage and sessionStorage into one portable JSON document that identity_import can restore elsewhere.",
+      inputSchema: {
+        name: z.string().min(1).describe("Identity name from identity_list."),
+      },
+    },
+    safeTool(async (args: { name: string }) => session.exportIdentity(args.name)),
+  );
+
+  server.registerTool(
+    "identity_import",
+    {
+      title: "Import an identity",
+      description:
+        "Restore cookies and web storage from an exported identity payload. The payload is validated in full before anything is written, so a malformed payload applies nothing.",
+      inputSchema: {
+        json: z.string().min(2).describe("The JSON document produced by identity_export."),
+        name: z.string().optional().describe("Override the identity name carried in the payload."),
+      },
+    },
+    safeTool(async (args: { json: string; name?: string }) => session.importIdentity(args.json, args.name)),
+  );
+
+  server.registerTool(
     "navigate",
     {
       title: "Navigate the page",
