@@ -1,6 +1,6 @@
 {
   "name": "reverse-engineering-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "An advanced Chrome CDP MCP server for web reverse engineering, dynamic analysis, and runtime instrumentation.",
   "type": "module",
   "bin": {

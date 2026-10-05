@@ -41,7 +41,7 @@ export function createServer(session: CdpSession): McpServer {
   const server = new McpServer(
     {
       name: "reverse-engineering-mcp",
-      version: "0.2.0",
+      version: "0.3.0",
     },
     {
       instructions: SERVER_INSTRUCTIONS,

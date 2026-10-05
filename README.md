@@ -7,7 +7,7 @@
 [![MCP](https://img.shields.io/badge/MCP-stdio%201.31-6E56CF)](https://modelcontextprotocol.io/)
 [![CDP](https://img.shields.io/badge/Chrome-CDP-4285F4?logo=googlechrome&logoColor=white)](https://chromedevtools.github.io/devtools-protocol/)
 [![Tests](https://img.shields.io/badge/Tests-21%2F21%20Passing-brightgreen)](test/index.test.ts)
-[![Tools](https://img.shields.io/badge/Tools-88%20Available-orange)](#tool-catalog)
+[![Tools](https://img.shields.io/badge/Tools-101%20Available-orange)](#tool-catalog)
 
 ---
 
@@ -19,6 +19,12 @@ Most AI browser integrations can only click buttons or scrape rendered DOM text.
 
 **🚀 Zero-Configuration Auto-Launch**: If Chromium (Chrome, Microsoft Edge, Brave) is not currently running on CDP port 9222, the server **automatically finds the installed browser executable and boots it in the background** with remote debugging enabled—no manual terminal commands required!
 
+Beyond CDP instrumentation, the server ships a stealth layer (three patch profiles
+with deterministic per-identity seeds), a semantic tree pruner that replaces raw DOM
+dumps with an integer-addressed accessibility view, isolated browser identities with
+per-context proxy binding, and captcha detection. Captcha solving is out of scope —
+`captcha_detect` reports a challenge so an agent can route around it.
+
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │                 AI Agent / MCP Client                       │
@@ -29,7 +35,7 @@ Most AI browser integrations can only click buttons or scrape rendered DOM text.
 ┌─────────────────────────────────────────────────────────────┐
 │                 reverse-engineering-mcp                      │
 │                                                             │
-│  ├── 88 Tools across 8 specialized domains                  │
+│  ├── 101 Tools across 11 specialized domains                │
 │  ├── Auto-Browser Launcher (Chrome, Edge, Brave discovery)  │
 │  ├── 3 Live State MCP Resources (status, logs, timeline)    │
 │  ├── 2 Guided MCP Prompts (triage-target, crack-signing)    │
@@ -144,7 +150,7 @@ MCP clients can read session state via URI without invoking tools:
 
 ---
 
-## Tool Catalog (87 Tools)
+## Tool Catalog (101 Tools)
 
 ### 🕹️ Browser Lifecycle & Emulation
 `browser_targets` · `browser_attach` · `browser_detach` · `browser_status` · `navigate` · `page_snapshot` · `screenshot` · `wait_for_selector` · `click_selector` · `type_text` · `press_key` · `hover_selector` · `scroll_page` · `select_option` · `reload_page` · `set_viewport` · `set_user_agent` · `evaluate`
@@ -176,7 +182,7 @@ MCP clients can read session state via URI without invoking tools:
 
 - 📖 [**Installation Guide**](docs/INSTALLATION.md): Complete setup for Windows, Linux, macOS, Claude, Codex, Cursor.
 - 🏗️ [**Architecture & Design**](docs/ARCHITECTURE.md): CDP protocol bridge, AST candidate scoring, memory management.
-- 📚 [**Tool Catalog Reference**](docs/TOOLS.md): Detailed parameter lists, return shapes, and examples for all 87 tools.
+- 📚 [**Tool Catalog Reference**](docs/TOOLS.md): Detailed parameter lists, return shapes, and examples for all 101 tools.
 - 🎯 [**Reverse Engineering Playbooks**](docs/WORKFLOWS.md): Step-by-step tutorials for cracking signatures, bypassing anti-debug, and Webpack dumping.
 
 ---

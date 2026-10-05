@@ -1,6 +1,6 @@
 # Tool Catalog & Reference Guide
 
-`reverse-engineering-mcp` exposes **88 tools** through the Model Context Protocol. All tools return standardized JSON-compatible responses and respect bounded buffer limits.
+`reverse-engineering-mcp` exposes **101 tools** through the Model Context Protocol. All tools return standardized JSON-compatible responses and respect bounded buffer limits.
 
 ---
 
@@ -145,3 +145,37 @@
 | `capture_bundle_snapshot`| `key` | Snapshot all current script URLs, hashes, and sizes for drift detection. |
 | `diff_bundles` | `baselineKey`, `currentKey` | Compare two bundle snapshots to identify updated or injected scripts. |
 | `env_diff` | None | Compare browser environment globals against a standard Node.js environment to spot anti-crawl tampering. |
+
+---
+
+## 9. Stealth & Fingerprint Control
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `stealth_enable` | `profile` (`off`/`basic`/`strict`), `seed?` | Install anti-detection patches on the attached target. `basic` covers identity leaks; `strict` adds canvas, WebGL and audio noise plus `Function.prototype.toString` integrity. |
+| `stealth_status` | None | Report the active profile, its patch ids, and whether a patch script is registered. |
+| `stealth_probe` | `maxChars?` | Run a detection suite in the page and report, per check, what still leaks and the observed value. |
+
+---
+
+## 10. Semantic Tree & Pruning
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `semantic_view` | `interactiveOnly?`, `maxNodes?`, `maxChars?` | Compressed accessibility tree with short integer ids, replacing raw DOM dumps. |
+| `interact_semantic` | `id`, `action`, `value?`, `snapshotVersion?` | Click, type, hover, focus or select by semantic id. A mismatched `snapshotVersion` is rejected rather than applied. |
+| `semantic_diff` | `maxChanges?` | Re-read the tree and return only nodes added, removed or changed since the previous snapshot. |
+
+---
+
+## 11. Identity & Captcha
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `identity_create` | `name`, `proxy?`, `seed?` | Create an isolated browser context, optionally proxy-bound. The proxy is TCP-probed before the context is created. |
+| `identity_use` | `name` | Activate an identity and apply its seed to the stealth layer. |
+| `identity_list` | None | List identities with proxy, seed and usability. |
+| `identity_export` | `name` | Serialize cookies and web storage into one portable JSON document. |
+| `identity_import` | `json`, `name?` | Restore an exported identity. Validated in full before anything is written. |
+| `captcha_detect` | None | Detect Turnstile, hCaptcha, reCAPTCHA or GeeTest and report the evidence. Reports only. |
+| `captcha_provider_hook` | `provider`, `apiKey` | Register an external solving endpoint. Off by default. |
