@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   beautifyJs,
@@ -11,6 +12,7 @@ import {
 import { CdpSession } from "../src/cdp.js";
 import { DEFAULT_SUGGESTIONS, ERROR_CODES, ToolError, err, ok, toEnvelope } from "../src/errors.js";
 import { findBrowserExecutable } from "../src/launcher.js";
+import { compressAxTree, diffSnapshots, formatSemanticView } from "../src/pruner.js";
 import { createServer } from "../src/server.js";
 import { activePatchIds, buildStealthScript, createSeededPrng, seedFromName } from "../src/stealth.js";
 
@@ -356,6 +358,105 @@ test("Stealth Tool Registration & Session Guards", async (t) => {
     const status = session.stealthStatus();
     assert.equal(status.profile, "off");
     assert.deepEqual(status.patchIds, []);
+  });
+});
+
+const loginAxTree = JSON.parse(
+  readFileSync(new URL("./fixtures/ax-tree-login.json", import.meta.url), "utf8"),
+).nodes;
+
+test("Semantic Pruner", async (t) => {
+  await t.test("drops ignored and generic nodes", () => {
+    const snapshot = compressAxTree(loginAxTree, { version: 1 });
+    assert.equal(snapshot.nodes.some((n) => n.role === "generic"), false);
+    assert.equal(snapshot.nodes.some((n) => n.role === "none"), false);
+  });
+
+  await t.test("keeps the accessible role and name, dropping an empty value", () => {
+    const snapshot = compressAxTree(loginAxTree, { version: 1 });
+    const email = snapshot.nodes.find((n) => n.name === "Email");
+    assert.ok(email);
+    assert.equal(email!.role, "textbox");
+    // An empty value carries no information, so it is omitted rather than
+    // rendered as value="". The diff test below covers a non-empty value.
+    assert.equal(email!.value, undefined);
+  });
+
+  await t.test("assigns sequential integer ids starting at 1", () => {
+    const snapshot = compressAxTree(loginAxTree, { version: 1 });
+    assert.deepEqual(
+      snapshot.nodes.map((n) => n.id),
+      [1, 2, 3, 4],
+    );
+  });
+
+  await t.test("idMap maps each integer id to its backendDOMNodeId", () => {
+    const snapshot = compressAxTree(loginAxTree, { version: 1 });
+    // id 1 is the RootWebArea, which carries no backendDOMNodeId, so the first
+    // addressable id is 2 (Email → 11). RootWebArea is still rendered.
+    assert.equal(snapshot.idMap.get(1), undefined);
+    assert.equal(snapshot.idMap.get(2), 11);
+    assert.equal(snapshot.idMap.get(3), 12);
+    assert.equal(snapshot.idMap.get(4), 13);
+  });
+
+  await t.test("interactiveOnly keeps only actionable roles", () => {
+    const snapshot = compressAxTree(loginAxTree, { version: 1, interactiveOnly: true });
+    assert.deepEqual(
+      snapshot.nodes.map((n) => n.role),
+      ["textbox", "textbox", "button"],
+    );
+  });
+
+  await t.test("maxNodes truncates and reports truncation", () => {
+    const snapshot = compressAxTree(loginAxTree, { version: 1, maxNodes: 2 });
+    assert.equal(snapshot.nodes.length, 2);
+    assert.equal(snapshot.truncated, true);
+  });
+
+  await t.test("formatSemanticView renders one labelled line per node", () => {
+    const snapshot = compressAxTree(loginAxTree, { version: 1 });
+    const text = formatSemanticView(snapshot);
+    assert.ok(text.includes("#1"));
+    assert.ok(text.includes('"Login"'));
+    assert.ok(text.includes('[4] button'));
+    assert.ok(text.includes('"Sign in"'));
+  });
+
+  await t.test("diffSnapshots reports a rename as one addition and one removal", () => {
+    const before = compressAxTree(loginAxTree, { version: 1 });
+    const afterTree = JSON.parse(JSON.stringify(loginAxTree));
+    afterTree[4].name.value = "Sign out";
+    const after = compressAxTree(afterTree, { version: 2 });
+    const diff = diffSnapshots(before, after, 100);
+    // Nodes are keyed by role + name, so a rename is a removal of the old key
+    // and an addition of the new one, not a change of a single node.
+    assert.equal(diff.added.some((n) => n.name === "Sign out"), true);
+    assert.equal(diff.removed.some((n) => n.name === "Sign in"), true);
+    assert.equal(diff.changed.length, 0);
+  });
+
+  await t.test("diffSnapshots reports a changed value for a stable key", () => {
+    const before = compressAxTree(loginAxTree, { version: 1 });
+    const afterTree = JSON.parse(JSON.stringify(loginAxTree));
+    afterTree[2].value.value = "user@example.com";
+    const after = compressAxTree(afterTree, { version: 2 });
+    const diff = diffSnapshots(before, after, 100);
+    assert.equal(diff.changed.length, 1);
+    assert.equal(diff.changed[0].name, "Email");
+    assert.equal(diff.changed[0].value, "user@example.com");
+  });
+
+  await t.test("diffSnapshots reports a removed visible node", () => {
+    const before = compressAxTree(loginAxTree, { version: 1 });
+    const trimmed = JSON.parse(JSON.stringify(loginAxTree));
+    // Drop the button node (index 4) and its reference from the generic parent.
+    trimmed[1].childIds = ["3", "4", "6"];
+    trimmed.splice(4, 1);
+    const after = compressAxTree(trimmed, { version: 2 });
+    const diff = diffSnapshots(before, after, 100);
+    assert.equal(diff.removed.length, 1);
+    assert.equal(diff.removed[0].name, "Sign in");
   });
 });
 
