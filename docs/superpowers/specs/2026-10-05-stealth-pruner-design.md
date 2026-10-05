@@ -156,9 +156,16 @@ loop does not re-read the whole tree after every action.
 ### 5.3 Identity & session (`src/identity.ts`)
 
 **Isolation.** Each identity owns a `Target.createBrowserContext({ proxyServer,
-proxyBypassList })`. Proxy is bound at the context level, so it applies to every
-socket the context opens — including subresources and WebSocket — rather than
-being limited to interceptable HTTP.
+proxyBypassList })`. Proxy is bound at the context level, so any page opened inside
+that context inherits it for every socket the page opens — including subresources and
+WebSocket — rather than being limited to interceptable HTTP.
+
+**Scope note (added after implementation review).** The session does not switch into
+an identity's context. `identity_use` applies the identity's fingerprint seed to the
+stealth layer and returns; all tools continue to drive the tab selected by
+`browser_attach`. The isolation above is therefore a property of the created context,
+not of the running session, and the proxy carries no traffic until something opens a
+page in that context. Switching the active target into the context is future work.
 
 **Portability.** `identity_export(name)` serializes cookies plus localStorage and
 sessionStorage into a single JSON document; `identity_import(json, name?)`
@@ -250,9 +257,10 @@ compress → assign IDs → store `{version, idMap}` → return text. Then
 existing `Input` dispatch → optional `semantic_diff` on the next turn.
 
 **Identity.** `identity_create` → context created with proxy → optional
-`stealth_enable` with the identity seed → `identity_use` makes it the active
-context for all tools. `identity_export` reads cookies and storage out of the
-active context.
+`stealth_enable` with the identity seed → `identity_use` applies that seed. It does
+**not** make the context active for tools; the attached tab is unchanged. Likewise
+`identity_export` reads cookies and storage out of the currently attached tab, not out
+of the identity's context.
 
 ## 8. Error handling
 

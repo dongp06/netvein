@@ -1,6 +1,6 @@
 import CDP from "chrome-remote-interface";
 import { launchBrowser, type LaunchOptions, type LaunchResult } from "./launcher.js";
-import { ToolError, toEnvelope, type Envelope } from "./errors.js";
+import { ToolError, ok, toEnvelope, type Envelope } from "./errors.js";
 import { activePatchIds, buildStealthScript, seedFromName, type StealthProfile } from "./stealth.js";
 import { compressAxTree, diffSnapshots, formatSemanticView, type SemanticSnapshot } from "./pruner.js";
 import {
@@ -8,6 +8,7 @@ import {
   parseProxyServer,
   probeProxy,
   serializeIdentity,
+  toCdpProxyServer,
   type IdentityPayload,
   type IdentityRecord,
 } from "./identity.js";
@@ -2785,9 +2786,11 @@ export class CdpSession {
     // fail as ERR_PROXY_UNREACHABLE whether or not a tab is attached, and no
     // identity is registered on failure.
     let proxyServer: string | undefined;
+    let cdpProxyServer: string | undefined;
     if (options.proxy) {
       try {
         proxyServer = parseProxyServer(options.proxy);
+        cdpProxyServer = toCdpProxyServer(options.proxy);
       } catch (error) {
         throw new ToolError(
           "ERR_PROXY_UNREACHABLE",
@@ -2817,7 +2820,7 @@ export class CdpSession {
     }
 
     const created = await client.Target.createBrowserContext(
-      proxyServer ? { proxyServer, proxyBypassList: ["127.0.0.1", "localhost"] } : {},
+      cdpProxyServer ? { proxyServer: cdpProxyServer, proxyBypassList: ["127.0.0.1", "localhost"] } : {},
     );
 
     const record: IdentityRecord = {
@@ -2827,8 +2830,7 @@ export class CdpSession {
       seed: options.seed ?? seedFromName(options.name),
       createdAt: new Date().toISOString(),
       usable: true,
-    };
-    this.identities.set(options.name, record);
+    };    this.identities.set(options.name, record);
     this.addTimeline("browser", "identity_create", `identity: ${options.name}`, { proxy: proxyServer });
     return record;
   }
@@ -2842,7 +2844,9 @@ export class CdpSession {
     try {
       return { success: true, data: await this.createIdentity(options) };
     } catch (error) {
-      return toEnvelope(error, "ERR_PROXY_UNREACHABLE");
+      // Proxy failures are raised as ToolError(ERR_PROXY_UNREACHABLE); the only
+      // non-ToolError reaching here is requireClient().
+      return toEnvelope(error, "ERR_NO_SESSION");
     }
   }
 
@@ -3017,6 +3021,47 @@ export class CdpSession {
   captchaProviderStatus(): { registered: boolean; provider?: string } {
     if (!this.captchaProvider) return { registered: false };
     return { registered: true, provider: this.captchaProvider.provider };
+  }
+
+  // --- Envelope wrappers for the remaining new operations -------------------
+  // Every new tool handler returns one of these, so no new tool can emit a bare
+  // {error} shape (spec §5.4).
+
+  /** Envelope-returning wrapper so callers that must not throw can use this directly. */
+  async stealthStatusEnvelope(): Promise<Envelope<Record<string, unknown>>> {
+    return ok({ ...this.stealthStatus() });
+  }
+
+  /** Envelope-returning wrapper so callers that must not throw can use this directly. */
+  async stealthProbeEnvelope(maxChars = MAX_STORED_TEXT): Promise<Envelope<Record<string, unknown>>> {
+    try {
+      return { success: true, data: await this.stealthProbe(maxChars) };
+    } catch (error) {
+      return toEnvelope(error, "ERR_NO_SESSION");
+    }
+  }
+
+  /** Envelope-returning wrapper so callers that must not throw can use this directly. */
+  async useIdentityEnvelope(name: string): Promise<Envelope<Record<string, unknown>>> {
+    try {
+      return { success: true, data: await this.useIdentity(name) };
+    } catch (error) {
+      return toEnvelope(error, "ERR_NO_IDENTITY");
+    }
+  }
+
+  /** Envelope-returning wrapper so callers that must not throw can use this directly. */
+  async listIdentitiesEnvelope(): Promise<Envelope<IdentityRecord[]>> {
+    return ok(this.listIdentities());
+  }
+
+  /** Envelope-returning wrapper so callers that must not throw can use this directly. */
+  async captchaProviderHookEnvelope(provider: string, apiKey: string): Promise<Envelope<Record<string, unknown>>> {
+    try {
+      return { success: true, data: this.captchaProviderHook(provider, apiKey) };
+    } catch (error) {
+      return toEnvelope(error, "ERR_CAPTCHA_PROVIDER_DISABLED");
+    }
   }
 
   async extractEndpoints(options: {
@@ -3728,6 +3773,16 @@ export class CdpSession {
     this.antiDebugBypassScriptId = null;
     this.hooks.clear();
     this.taintTrackers.clear();
+    // New-subsystem state must not survive a detach: a stale semantic snapshot
+    // addresses backendDOMNodeIds belonging to a previous target, and a stale
+    // stealth registration belongs to a document that no longer exists.
+    this.stealthScriptId = null;
+    this.stealthProfile = "off";
+    this.stealthSeed = 0;
+    this.semanticSnapshot = null;
+    this.semanticVersionCounter = 0;
+    this.identities.clear();
+    this.captchaProvider = null;
   }
 
   private requireClient(): any {
@@ -3787,6 +3842,9 @@ export class CdpSession {
     client.on("disconnect", () => {
       this.client = null;
       this.pauseState = null;
+      // The target is gone, so its node ids and its injected patch registration are stale.
+      this.semanticSnapshot = null;
+      this.stealthScriptId = null;
     });
 
     client.DOM.on("documentUpdated", () => {

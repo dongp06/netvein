@@ -54,6 +54,17 @@ export function probeProxy(proxy: string, timeoutMs = 3000): Promise<void> {
   });
 }
 
+/**
+ * The value to hand Chrome as `proxyServer`. Validated with the same rules as
+ * the TCP probe, but the scheme is preserved: Chrome reads a scheme-less proxy
+ * as HTTP, so stripping `socks5://` would silently misconfigure SOCKS.
+ * Use `parseProxyServer` (host:port) for the TCP probe, which cannot use a scheme.
+ */
+export function toCdpProxyServer(proxy: string): string {
+  parseProxyServer(proxy);
+  return proxy.trim();
+}
+
 export interface IdentityPayload {
   version: 1;
   name: string;

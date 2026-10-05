@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { CdpSession } from "./cdp.js";
+import type { Envelope } from "./errors.js";
 import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { registerResources } from "./resources.js";
 import { registerPrompts } from "./prompts.js";
@@ -34,6 +35,22 @@ function safeTool<TArgs>(handler: (args: TArgs) => Promise<unknown>) {
     } catch (error) {
       return failure(error);
     }
+  };
+}
+
+/**
+ * Handlers for the tools added after the structured-error change return an
+ * Envelope directly, so the client always sees `success`/`error_code`/
+ * `message`/`suggestion` instead of a bare `{error}` string. MCP-level
+ * `isError` is still set for transport-visible failures (spec §5.4).
+ */
+function envelopeTool<TArgs>(handler: (args: TArgs) => Promise<Envelope<unknown>>) {
+  return async (args: TArgs): Promise<ToolResult> => {
+    const result = await handler(args);
+    return {
+      ...(result.success ? {} : { isError: true }),
+      content: [{ type: "text", text: stringify(result) }],
+    };
   };
 }
 
@@ -142,8 +159,8 @@ export function createServer(session: CdpSession): McpServer {
           .describe("Deterministic fingerprint seed. Omit to derive one from the attached target id."),
       },
     },
-    safeTool(async (args: { profile?: "off" | "basic" | "strict"; seed?: number }) =>
-      session.applyStealth(args.profile ?? "basic", args.seed),
+    envelopeTool(async (args: { profile?: "off" | "basic" | "strict"; seed?: number }) =>
+      session.applyStealthEnvelope(args.profile ?? "basic", args.seed),
     ),
   );
 
@@ -154,7 +171,7 @@ export function createServer(session: CdpSession): McpServer {
       description: "Return the active stealth profile, the patch ids it activates, and whether a patch script is registered.",
       annotations: { readOnlyHint: true },
     },
-    safeTool(async () => session.stealthStatus()),
+    envelopeTool(async () => session.stealthStatusEnvelope()),
   );
 
   server.registerTool(
@@ -167,7 +184,7 @@ export function createServer(session: CdpSession): McpServer {
         maxChars: z.number().int().min(1000).max(20000).default(20000).describe("Maximum characters returned."),
       },
     },
-    safeTool(async (args: { maxChars?: number }) => session.stealthProbe(args.maxChars ?? 20_000)),
+    envelopeTool(async (args: { maxChars?: number }) => session.stealthProbeEnvelope(args.maxChars ?? 20_000)),
   );
 
   server.registerTool(
@@ -182,7 +199,9 @@ export function createServer(session: CdpSession): McpServer {
         maxChars: z.number().int().min(1000).max(20000).default(20000).describe("Maximum characters in the rendered view."),
       },
     },
-    safeTool(async (args: { interactiveOnly?: boolean; maxNodes?: number; maxChars?: number }) => session.semanticView(args)),
+    envelopeTool(async (args: { interactiveOnly?: boolean; maxNodes?: number; maxChars?: number }) =>
+      session.semanticViewEnvelope(args),
+    ),
   );
 
   server.registerTool(
@@ -199,8 +218,7 @@ export function createServer(session: CdpSession): McpServer {
           .number()
           .int()
           .min(1)
-          .optional()
-          .describe("Version returned by semantic_view. When supplied, a mismatched version is rejected."),
+          .describe("Version returned by semantic_view. Required, so a stale id can never be applied to the wrong element."),
       },
     },
     safeTool(
@@ -209,7 +227,7 @@ export function createServer(session: CdpSession): McpServer {
         action: "click" | "type" | "hover" | "select" | "focus";
         value?: string;
         snapshotVersion?: number;
-      }) => session.interactSemantic(args.id, args.action, args.value, args.snapshotVersion),
+      }) => session.interactSemanticEnvelope(args.id, args.action, args.value, args.snapshotVersion),
     ),
   );
 
@@ -223,7 +241,7 @@ export function createServer(session: CdpSession): McpServer {
         maxChanges: z.number().int().min(1).max(500).default(100).describe("Maximum entries per change category."),
       },
     },
-    safeTool(async (args: { maxChanges?: number }) => session.semanticDiff(args.maxChanges ?? 100)),
+    envelopeTool(async (args: { maxChanges?: number }) => session.semanticDiffEnvelope(args.maxChanges ?? 100)),
   );
 
   server.registerTool(
@@ -231,26 +249,27 @@ export function createServer(session: CdpSession): McpServer {
     {
       title: "Create an isolated browser identity",
       description:
-        "Create a browser context isolated from other identities, optionally bound to a proxy at the context level so the proxy covers every socket including subresources and WebSocket. A proxy is TCP-probed before the context is created.",
+        "Create a browser context for an identity, optionally bound to a proxy, and record it. The proxy is TCP-probed before the context is created, and the scheme is preserved so a SOCKS proxy is not registered as HTTP. Note: the session does not switch into the context — identity_use only applies the identity's fingerprint seed and returns, so tools keep driving the tab selected by browser_attach.",
       inputSchema: {
         name: z.string().min(1).describe("Unique identity name."),
         proxy: z.string().optional().describe("Proxy in host:port or scheme://host:port form."),
         seed: z.number().int().min(0).max(4294967295).optional().describe("Fingerprint seed. Defaults to a hash of the name."),
       },
     },
-    safeTool(async (args: { name: string; proxy?: string; seed?: number }) => session.createIdentity(args)),
+    envelopeTool(async (args: { name: string; proxy?: string; seed?: number }) => session.createIdentityEnvelope(args)),
   );
 
   server.registerTool(
     "identity_use",
     {
       title: "Activate an identity",
-      description: "Mark an identity active and apply its fingerprint seed to the stealth layer.",
+      description:
+        "Apply an identity's fingerprint seed to the stealth layer. This does not switch the session into the identity's browser context; the attached tab is unchanged.",
       inputSchema: {
         name: z.string().min(1).describe("Identity name from identity_list."),
       },
     },
-    safeTool(async (args: { name: string }) => session.useIdentity(args.name)),
+    envelopeTool(async (args: { name: string }) => session.useIdentityEnvelope(args.name)),
   );
 
   server.registerTool(
@@ -260,7 +279,7 @@ export function createServer(session: CdpSession): McpServer {
       description: "List created identities with their proxy binding, seed and usability.",
       annotations: { readOnlyHint: true },
     },
-    safeTool(async () => session.listIdentities()),
+    envelopeTool(async () => session.listIdentitiesEnvelope()),
   );
 
   server.registerTool(
@@ -273,7 +292,7 @@ export function createServer(session: CdpSession): McpServer {
         name: z.string().min(1).describe("Identity name from identity_list."),
       },
     },
-    safeTool(async (args: { name: string }) => session.exportIdentity(args.name)),
+    envelopeTool(async (args: { name: string }) => session.exportIdentityEnvelope(args.name)),
   );
 
   server.registerTool(
@@ -287,7 +306,7 @@ export function createServer(session: CdpSession): McpServer {
         name: z.string().optional().describe("Override the identity name carried in the payload."),
       },
     },
-    safeTool(async (args: { json: string; name?: string }) => session.importIdentity(args.json, args.name)),
+    envelopeTool(async (args: { json: string; name?: string }) => session.importIdentityEnvelope(args.json, args.name)),
   );
 
   server.registerTool(
@@ -298,7 +317,7 @@ export function createServer(session: CdpSession): McpServer {
         "Inspect the current page for Cloudflare Turnstile, hCaptcha, reCAPTCHA or GeeTest, and report the vendor, evidence and challenge frames. This reports only; it does not solve. Use the result to decide whether to rotate identity or pause for a human.",
       annotations: { readOnlyHint: true },
     },
-    safeTool(async () => session.captchaDetect()),
+    envelopeTool(async () => session.captchaDetectEnvelope()),
   );
 
   server.registerTool(
@@ -312,7 +331,9 @@ export function createServer(session: CdpSession): McpServer {
         apiKey: z.string().min(1).describe("Provider API key."),
       },
     },
-    safeTool(async (args: { provider: string; apiKey: string }) => session.captchaProviderHook(args.provider, args.apiKey)),
+    envelopeTool(async (args: { provider: string; apiKey: string }) =>
+      session.captchaProviderHookEnvelope(args.provider, args.apiKey),
+    ),
   );
 
   server.registerTool(

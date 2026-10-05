@@ -172,8 +172,8 @@
 
 | Tool | Parameters | Description |
 |---|---|---|
-| `identity_create` | `name`, `proxy?`, `seed?` | Create an isolated browser context, optionally proxy-bound. The proxy is TCP-probed before the context is created. |
-| `identity_use` | `name` | Activate an identity and apply its seed to the stealth layer. |
+| `identity_create` | `name`, `proxy?`, `seed?` | Create and record a browser context for an identity, optionally proxy-bound. The proxy is TCP-probed first and its scheme is preserved. The session does **not** switch into the context. |
+| `identity_use` | `name` | Apply an identity's fingerprint seed to the stealth layer. Does not change the attached tab. |
 | `identity_list` | None | List identities with proxy, seed and usability. |
 | `identity_export` | `name` | Serialize cookies and web storage into one portable JSON document. |
 | `identity_import` | `json`, `name?` | Restore an exported identity. Validated in full before anything is written. |

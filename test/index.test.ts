@@ -11,7 +11,7 @@ import {
 } from "../src/analysis.js";
 import { CdpSession } from "../src/cdp.js";
 import { DEFAULT_SUGGESTIONS, ERROR_CODES, ToolError, err, ok, toEnvelope } from "../src/errors.js";
-import { parseIdentityPayload, parseProxyServer, serializeIdentity } from "../src/identity.js";
+import { parseIdentityPayload, parseProxyServer, serializeIdentity, toCdpProxyServer } from "../src/identity.js";
 import { findBrowserExecutable } from "../src/launcher.js";
 import { compressAxTree, diffSnapshots, formatSemanticView } from "../src/pruner.js";
 import { createServer } from "../src/server.js";
@@ -650,6 +650,120 @@ test("Tool Surface Contract", async (t) => {
     for (const name of expected) {
       assert.ok(tools.includes(name), `Missing new tool: ${name}`);
     }
+  });
+});
+
+test("New tools return the structured error envelope at the MCP boundary", async (t) => {
+  // Drives the handler the MCP client actually calls, not the session method,
+  // so a green session-level test cannot hide an unwired envelope.
+  const call = async (name: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => {
+    const server = createServer(new CdpSession());
+    const entry = (server as any)._registeredTools[name];
+    const result = await entry.handler(args, {} as never);
+    return JSON.parse(result.content[0].text) as Record<string, unknown>;
+  };
+
+  await t.test("stealth_enable with no session returns the envelope, not a bare error string", async () => {
+    const payload = await call("stealth_enable", { profile: "basic" });
+    assert.equal(payload.success, false);
+    assert.equal(payload.error_code, "ERR_NO_SESSION");
+    assert.equal(typeof payload.suggestion, "string");
+  });
+
+  await t.test("semantic_view with no session returns the envelope", async () => {
+    const payload = await call("semantic_view", {});
+    assert.equal(payload.success, false);
+    assert.equal(payload.error_code, "ERR_NO_SESSION");
+  });
+
+  await t.test("interact_semantic with no session returns the envelope", async () => {
+    const payload = await call("interact_semantic", { id: 1, action: "click", snapshotVersion: 1 });
+    assert.equal(payload.success, false);
+    assert.equal(payload.error_code, "ERR_NO_SESSION");
+  });
+
+  await t.test("identity_create with no session returns the envelope", async () => {
+    const payload = await call("identity_create", { name: "boundary" });
+    assert.equal(payload.success, false);
+    assert.ok(typeof payload.error_code === "string");
+  });
+
+  await t.test("identity_import with a malformed payload returns the envelope and applies nothing", async () => {
+    const payload = await call("identity_import", { json: "{not json" });
+    assert.equal(payload.success, false);
+    assert.equal(payload.error_code, "ERR_NO_IDENTITY");
+    assert.equal(typeof payload.suggestion, "string");
+  });
+
+  await t.test("captcha_detect with no session returns the envelope", async () => {
+    const payload = await call("captcha_detect", {});
+    assert.equal(payload.success, false);
+    assert.equal(payload.error_code, "ERR_NO_SESSION");
+  });
+
+  await t.test("captcha_provider_hook with an empty key returns ERR_CAPTCHA_PROVIDER_DISABLED", async () => {
+    const payload = await call("captcha_provider_hook", { provider: "", apiKey: "" });
+    assert.equal(payload.success, false);
+    assert.equal(payload.error_code, "ERR_CAPTCHA_PROVIDER_DISABLED");
+  });
+
+  await t.test("a successful call still returns success true", async () => {
+    const payload = await call("stealth_status", {});
+    assert.equal(payload.success, true);
+  });
+});
+
+test("Final review fixes", async (t) => {
+  await t.test("I4: toCdpProxyServer preserves the scheme so a SOCKS proxy is not sent to Chrome as HTTP", () => {
+    assert.equal(toCdpProxyServer("socks5://10.0.0.1:1080"), "socks5://10.0.0.1:1080");
+    assert.equal(toCdpProxyServer("http://127.0.0.1:8080"), "http://127.0.0.1:8080");
+    assert.equal(toCdpProxyServer("127.0.0.1:8080"), "127.0.0.1:8080");
+  });
+
+  await t.test("I4: toCdpProxyServer still rejects a malformed proxy", () => {
+    assert.throws(() => toCdpProxyServer("127.0.0.1"), /host:port/);
+    assert.throws(() => toCdpProxyServer("127.0.0.1:99999"), /host:port/);
+  });
+
+  const strictScript = buildStealthScript("strict", 4242);
+
+  await t.test("I5: canvas coverage includes toDataURL and toBlob, not only getImageData", () => {
+    assert.ok(strictScript.includes("toDataURL"), "canvas toDataURL not patched");
+    assert.ok(strictScript.includes("toBlob"), "canvas toBlob not patched");
+    assert.ok(strictScript.includes("getImageData"), "canvas getImageData not patched");
+  });
+
+  await t.test("I5: audio coverage includes getByteFrequencyData", () => {
+    assert.ok(strictScript.includes("getByteFrequencyData"));
+  });
+
+  await t.test("I5: WebGL2 is patched, not only WebGL1", () => {
+    assert.ok(strictScript.includes("WebGL2RenderingContext"));
+  });
+
+  await t.test("I5: navigator surface includes mimeTypes and platform", () => {
+    assert.ok(strictScript.includes("mimeTypes"), "navigator.mimeTypes not patched");
+    assert.ok(strictScript.includes("platform"), "navigator.platform not patched");
+  });
+
+  await t.test("I6: patches register their replacements for toString integrity", () => {
+    assert.ok(
+      strictScript.includes("__markPatched"),
+      "patched prototype methods are not registered, so getImageData.toString() reveals the patch",
+    );
+  });
+
+  await t.test("I6: the markPatched helper exists even in the basic profile", () => {
+    assert.ok(buildStealthScript("basic", 4242).includes("__markPatched"));
+  });
+
+  await t.test("I2: interact_semantic requires snapshotVersion so the stale-id guard is not opt-in", () => {
+    const server = createServer(new CdpSession());
+    const registered = (server as any)._registeredTools["interact_semantic"].inputSchema;
+    // The SDK wraps the raw ZodRawShape in a Zod object; fields live on .shape.
+    const fields = registered.shape ?? registered;
+    assert.equal(fields.snapshotVersion.safeParse(undefined).success, false);
+    assert.equal(fields.snapshotVersion.safeParse(3).success, true);
   });
 });
 

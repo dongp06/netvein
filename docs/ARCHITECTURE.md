@@ -104,9 +104,13 @@ nodes. Ids are valid only for the snapshot version that produced them; navigatio
 `ERR_STALE_NODE_ID` rather than applied to a node that reuses the same
 `backendDOMNodeId`.
 
-**Identity isolation.** Each identity owns a `Target.createBrowserContext`, so proxy
-binding applies to every socket the context opens, not just interceptable HTTP.
-Cookies and web storage serialize into one portable document for replay elsewhere.
+**Identity records.** Each identity owns a `Target.createBrowserContext`, created with a
+proxy when one is supplied, so any page later opened in that context inherits the proxy
+for every socket it opens. The context is created and recorded; **the session does not
+switch into it** — `identity_use` applies the identity's fingerprint seed to the stealth
+layer and returns, and all tools continue to drive the tab selected by `browser_attach`.
+Switching the active target into an identity's context is not implemented. Cookies and
+web storage serialize into one portable document for replay elsewhere.
 
 **Error envelope.** New tools return `{success, error_code, message, suggestion}` so
 the model can correct itself on the next turn instead of the reasoning chain breaking.
