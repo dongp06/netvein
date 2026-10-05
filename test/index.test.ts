@@ -9,6 +9,7 @@ import {
   identifyCrypto,
 } from "../src/analysis.js";
 import { CdpSession } from "../src/cdp.js";
+import { DEFAULT_SUGGESTIONS, ERROR_CODES, ToolError, err, ok, toEnvelope } from "../src/errors.js";
 import { findBrowserExecutable } from "../src/launcher.js";
 import { createServer } from "../src/server.js";
 
@@ -203,6 +204,63 @@ test("Browser Launcher Discovery", async (t) => {
       assert.ok(binary.length > 0);
     } else {
       assert.equal(binary, null);
+    }
+  });
+});
+
+test("Structured Error Envelope", async (t) => {
+  await t.test("ok() wraps data with success true", () => {
+    const result = ok({ nodes: 3 });
+    assert.equal(result.success, true);
+    assert.deepEqual(result.data, { nodes: 3 });
+  });
+
+  await t.test("err() omits suggestion when not supplied", () => {
+    const result = err("ERR_NO_SESSION", "no tab");
+    assert.equal(result.success, false);
+    assert.equal(result.error_code, "ERR_NO_SESSION");
+    assert.equal(result.message, "no tab");
+    assert.equal("suggestion" in result, false);
+  });
+
+  await t.test("err() includes suggestion when supplied", () => {
+    const result = err("ERR_STALE_NODE_ID", "stale", "re-run semantic_view");
+    assert.equal(result.suggestion, "re-run semantic_view");
+  });
+
+  await t.test("ToolError round-trips into an envelope", () => {
+    const error = new ToolError("ERR_STALE_NODE_ID", "id 15 is from version 2", "re-run semantic_view");
+    const envelope = error.toEnvelope();
+    assert.equal(envelope.error_code, "ERR_STALE_NODE_ID");
+    assert.equal(envelope.suggestion, "re-run semantic_view");
+  });
+
+  await t.test("toEnvelope maps a thrown non-ToolError to the fallback code", () => {
+    const envelope = toEnvelope(new Error("boom"), "ERR_AX_TREE_UNAVAILABLE");
+    assert.equal(envelope.error_code, "ERR_AX_TREE_UNAVAILABLE");
+    assert.equal(envelope.message, "boom");
+  });
+
+  await t.test("toEnvelope attaches the default suggestion on the fallback path", () => {
+    const envelope = toEnvelope(new Error("no tab"), "ERR_NO_SESSION");
+    assert.equal(envelope.suggestion, DEFAULT_SUGGESTIONS.ERR_NO_SESSION);
+  });
+
+  await t.test("every error code has a default suggestion", () => {
+    for (const code of Object.keys(ERROR_CODES) as Array<keyof typeof ERROR_CODES>) {
+      assert.ok(DEFAULT_SUGGESTIONS[code]?.length > 0, `Missing default suggestion for ${code}`);
+    }
+  });
+
+  await t.test("toEnvelope preserves a thrown ToolError's own code", () => {
+    const envelope = toEnvelope(new ToolError("ERR_PROXY_UNREACHABLE", "proxy down"), "ERR_NO_SESSION");
+    assert.equal(envelope.error_code, "ERR_PROXY_UNREACHABLE");
+  });
+
+  await t.test("every registry entry has a non-empty description", () => {
+    for (const [code, description] of Object.entries(ERROR_CODES)) {
+      assert.ok(description.length > 0, `Empty description for ${code}`);
+      assert.ok(code.startsWith("ERR_"), `Code ${code} missing ERR_ prefix`);
     }
   });
 });
