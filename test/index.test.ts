@@ -12,6 +12,7 @@ import { CdpSession } from "../src/cdp.js";
 import { DEFAULT_SUGGESTIONS, ERROR_CODES, ToolError, err, ok, toEnvelope } from "../src/errors.js";
 import { findBrowserExecutable } from "../src/launcher.js";
 import { createServer } from "../src/server.js";
+import { activePatchIds, buildStealthScript, createSeededPrng, seedFromName } from "../src/stealth.js";
 
 test("Server & Tool Registration", async (t) => {
   await t.test("Initializes server with all tools, resources, and prompts", () => {
@@ -262,6 +263,72 @@ test("Structured Error Envelope", async (t) => {
       assert.ok(description.length > 0, `Empty description for ${code}`);
       assert.ok(code.startsWith("ERR_"), `Code ${code} missing ERR_ prefix`);
     }
+  });
+});
+
+test("Stealth Patch Generator", async (t) => {
+  await t.test("off profile activates no patches", () => {
+    assert.deepEqual(activePatchIds("off"), []);
+  });
+
+  await t.test("basic profile activates exactly the four identity patches", () => {
+    assert.deepEqual(activePatchIds("basic").sort(), [
+      "iframe-content-window",
+      "navigator-surface",
+      "navigator-webdriver",
+      "runtime-leak",
+    ]);
+  });
+
+  await t.test("strict profile activates every patch", () => {
+    const strict = activePatchIds("strict");
+    assert.ok(strict.length > activePatchIds("basic").length);
+    for (const id of activePatchIds("basic")) {
+      assert.ok(strict.includes(id), `strict missing basic patch ${id}`);
+    }
+    assert.ok(strict.includes("canvas-noise"));
+    assert.ok(strict.includes("webgl-vendor"));
+    assert.ok(strict.includes("audio-noise"));
+    assert.ok(strict.includes("to-string-integrity"));
+  });
+
+  await t.test("buildStealthScript is deterministic for the same profile and seed", () => {
+    assert.equal(buildStealthScript("strict", 483920), buildStealthScript("strict", 483920));
+  });
+
+  await t.test("buildStealthScript differs across seeds", () => {
+    assert.notEqual(buildStealthScript("strict", 1), buildStealthScript("strict", 2));
+  });
+
+  await t.test("off profile produces an empty script", () => {
+    assert.equal(buildStealthScript("off", 99), "");
+  });
+
+  await t.test("strict script mentions the patched surfaces", () => {
+    const script = buildStealthScript("strict", 1234);
+    assert.ok(script.includes("webdriver"));
+    assert.ok(script.includes("getImageData"));
+    assert.ok(script.includes("37445"));
+    assert.ok(script.includes("getFloatFrequencyData"));
+  });
+
+  await t.test("the seed literal appears in the generated script", () => {
+    assert.ok(buildStealthScript("basic", 777).includes("777"));
+  });
+
+  await t.test("seeded prng is deterministic and bounded", () => {
+    const a = createSeededPrng(42);
+    const b = createSeededPrng(42);
+    for (let i = 0; i < 50; i++) {
+      const value = a();
+      assert.equal(value, b());
+      assert.ok(value >= 0 && value < 1, `value out of range: ${value}`);
+    }
+  });
+
+  await t.test("seedFromName is stable and collision-free for distinct names", () => {
+    assert.equal(seedFromName("identity-a"), seedFromName("identity-a"));
+    assert.notEqual(seedFromName("identity-a"), seedFromName("identity-b"));
   });
 });
 
