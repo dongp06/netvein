@@ -233,7 +233,8 @@ class Netvein:
         return out[-limit:]
 
     async def _cmd_list(self, args):
-        return {"flows": [summary(f) for f in self._filter(list(self.flows.values()), args)]}
+        # _filter already returns serialized summaries; do not re-summarize.
+        return {"flows": self._filter(list(self.flows.values()), args)}
 
     async def _cmd_get(self, args):
         flow = self.flows.get(args["flowId"])
