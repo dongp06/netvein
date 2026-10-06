@@ -11,6 +11,7 @@
   "files": [
     "dist",
     "python",
+    "skills",
     "install.sh",
     "install.ps1",
     "README.md",

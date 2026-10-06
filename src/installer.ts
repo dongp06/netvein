@@ -39,6 +39,21 @@ function getEntryPointPath(): string {
   }
 }
 
+function getSkillPath(): string {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const cand1 = path.resolve(here, "..", "skills", "netvein", "SKILL.md");
+    if (fs.existsSync(cand1)) return cand1;
+    const cand2 = path.resolve(here, "skills", "netvein", "SKILL.md");
+    if (fs.existsSync(cand2)) return cand2;
+    const cand3 = path.resolve(here, "..", ".agents", "skills", "netvein", "SKILL.md");
+    if (fs.existsSync(cand3)) return cand3;
+    return "";
+  } catch {
+    return "";
+  }
+}
+
 export function getKnownTargets(): AgentConfigTarget[] {
   const home = os.homedir();
   const isWin = process.platform === "win32";
@@ -150,6 +165,20 @@ export function installAgents(options: InstallOptions = {}): TargetResult[] {
         };
 
         fs.writeFileSync(target.configPath, JSON.stringify(json, null, 2) + "\n", "utf8");
+
+        if (target.id === "antigravity") {
+          try {
+            const skillSource = getSkillPath();
+            if (skillSource && fs.existsSync(skillSource)) {
+              const skillDir = path.join(path.dirname(target.configPath), "skills", "netvein");
+              fs.mkdirSync(skillDir, { recursive: true });
+              fs.copyFileSync(skillSource, path.join(skillDir, "SKILL.md"));
+            }
+          } catch {
+            // non-fatal skill installation
+          }
+        }
+
         results.push({
           target: target.name,
           path: target.configPath,
