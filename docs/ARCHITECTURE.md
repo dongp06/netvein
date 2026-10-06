@@ -135,6 +135,33 @@ is the JSON-RPC channel and a stray line would corrupt the protocol.
 
 ---
 
+### H. Traffic Wire Layer
+
+The CDP network capture is tab-scoped and surgical; the traffic layer adds the wire.
+`src/mitm/manager.ts` spawns and owns a `mitmdump` bound to loopback, loading
+`python/netvein_addon.py`, a thin control servant that speaks JSON-lines over a private
+127.0.0.1 control socket (port discovered through a portfile in the confdir). Everything
+the model sees is shaped in Node (`src/mitm/store.ts`); the daemon only captures, holds,
+replays and exports, because the flow objects live there.
+
+That split buys what CDP cannot: capture across all tabs and non-browser clients, a
+history that survives detach, out-of-page replay with overrides, in-flight holds
+(`traffic_breakpoint_set`) that auto-pass after `maxHoldMs` rather than wedging the
+client, and HAR/JSONL export for Burp/Charles. Browsers launched by netvein pick up
+`--proxy-server` plus an `--ignore-certificate-errors-spki-list` pin automatically; an
+already-attached browser is reported as a note, never silently rerouted.
+
+**Trust model.** The daemon is loopback-only and netvein-owned: the CA lives in a
+private confdir, is never installed into any system trust store, and the spki pin is
+scoped to the browsers netvein itself launches. Replay deliberately disables TLS
+verification — RE targets routinely present certificates a loopback CA cannot verify.
+
+Failure states are distinct: `stopped` (never started or cleanly stopped), `running`,
+and `dead` (the child died; queued commands reject and flow history is lost). A stopped
+daemon answers `traffic_status` as data, not as an error.
+
+---
+
 ## 3. Error Handling & Resilience
 - **Rejection Guards**: Captures `unhandledRejection` events from remote WebSocket disconnects without crashing the server process.
 - **Auto-Recovery**: If a tab closes or navigates away unexpectedly, the session resets internal buffers and cleanly reports target detachment.

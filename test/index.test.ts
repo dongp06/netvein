@@ -984,7 +984,7 @@ test("Netvein Rename", async (t) => {
   await t.test("package identity is netvein-mcp with a compat bin alias", () => {
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
     assert.equal(pkg.name, "netvein-mcp");
-    assert.equal(pkg.version, "0.4.0");
+    assert.match(pkg.version, /^\d+\.\d+\.\d+$/);
     assert.equal(pkg.bin["netvein-mcp"], "./dist/index.js");
     assert.equal(pkg.bin["reverse-engineering-mcp"], "./dist/index.js");
   });
@@ -995,11 +995,12 @@ test("Netvein Rename", async (t) => {
     assert.equal(VERSION, pkg.version);
   });
 
-  await t.test("MCP handshake identifies as netvein-mcp 0.4.0", () => {
+  await t.test("MCP handshake carries the single-source version", async () => {
+    const { VERSION } = await import("../src/version.js");
     const server = createServer(new CdpSession());
     const info = (server as any).server?._serverInfo;
     assert.equal(info.name, "netvein-mcp");
-    assert.equal(info.version, "0.4.0");
+    assert.equal(info.version, VERSION);
   });
 
   await t.test("default repo URL points at the renamed repository", async () => {

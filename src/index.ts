@@ -9,8 +9,9 @@ import { VERSION } from "./version.js";
 
 function printHelp(): void {
   console.log(`
-Reverse Engineering MCP Server v${VERSION}
-An advanced Chrome DevTools Protocol (CDP) server for web reverse engineering and dynamic analysis.
+Netvein MCP v${VERSION}
+The reverse-engineer's browser MCP: Chrome DevTools Protocol session plus a wire-level
+traffic daemon for web reverse engineering and dynamic analysis.
 
 Usage:
   netvein-mcp [options]

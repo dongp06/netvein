@@ -1,6 +1,6 @@
 # Tool Catalog & Reference Guide
 
-`netvein-mcp` exposes **102 tools** through the Model Context Protocol. All tools return standardized JSON-compatible responses and respect bounded buffer limits.
+`netvein-mcp` exposes **112 tools** through the Model Context Protocol. All tools return standardized JSON-compatible responses and respect bounded buffer limits.
 
 ---
 
@@ -182,7 +182,28 @@
 
 ---
 
-## 12. Maintenance
+## 12. Traffic Wire Layer
+
+A netvein-owned loopback `mitmdump` daemon (pipx install mitmproxy) captures at the wire:
+all tabs, survives CDP detach, out-of-page replay. `traffic_start` first; browsers launched
+by netvein afterwards route through the proxy automatically.
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `traffic_start` | `port?`, `caDir?`, `allowHosts?`, `attachBrowser?` | Spawn the owned mitmdump daemon with the netvein control addon. Private confdir CA; loopback only. |
+| `traffic_stop` | None | Gracefully stop the daemon. Flow history is lost unless exported first. |
+| `traffic_status` | None | Daemon state (`stopped`/`running`/`dead`), proxy endpoint, held ids, last stats. |
+| `traffic_flows` | `host?`, `pathContains?`, `method?`, `status?`, `since?`, `heldOnly?`, `limit?`, `full?` | Filter the flow ring; compact one-line view by default, `full=true` for raw summaries. |
+| `traffic_flow` | `id`, `part?`, `maxChars?` | Curated headers + beautified body for one flow; `request`/`response`/`both`/`ws`. |
+| `traffic_curl` | `id` | Ready-to-run, shell-quoted curl reconstructed from a captured flow. |
+| `traffic_breakpoint_set` | `pattern`, `maxHoldMs?` | Hold flows matching a URL regex in flight; auto-passes at `maxHoldMs`. Returns the breakpoint table. |
+| `traffic_breakpoint_release` | `flowId`, `action?`, `patch?` | Release a held flow: `pass`, `modify` (url/method/headers/body), or `drop`. |
+| `traffic_replay` | `id`, `overrides?`, `compare?` | Resend a captured request outside page context; optional path-level diff vs the original response. |
+| `traffic_export` | `format?`, `path?` | Write flow history as HAR 1.2 or JSONL; returns path + count. |
+
+---
+
+## 13. Maintenance
 
 | Tool | Parameters | Description |
 |---|---|---|

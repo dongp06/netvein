@@ -6,8 +6,8 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-stdio%201.31-6E56CF)](https://modelcontextprotocol.io/)
 [![CDP](https://img.shields.io/badge/Chrome-CDP-4285F4?logo=googlechrome&logoColor=white)](https://chromedevtools.github.io/devtools-protocol/)
-[![Tests](https://img.shields.io/badge/Tests-137%2F137%20Passing-brightgreen)](test/index.test.ts)
-[![Tools](https://img.shields.io/badge/Tools-102%20Available-orange)](#tool-catalog)
+[![Tests](https://img.shields.io/badge/Tests-188%2F188%20Passing-brightgreen)](test/index.test.ts)
+[![Tools](https://img.shields.io/badge/Tools-112%20Available-orange)](#tool-catalog)
 
 ---
 
@@ -35,7 +35,7 @@ per-context proxy binding, and captcha detection. Captcha solving is out of scop
 ┌─────────────────────────────────────────────────────────────┐
 │                         netvein-mcp                         │
 │                                                             │
-│  ├── 102 Tools across 12 specialized domains                │
+│  ├── 112 Tools across 13 specialized domains                │
 │  ├── Auto-Browser Launcher (Chrome, Edge, Brave discovery)  │
 │  ├── 3 Live State MCP Resources (status, logs, timeline)    │
 │  ├── 2 Guided MCP Prompts (triage-target, crack-signing)    │
@@ -64,6 +64,7 @@ per-context proxy binding, and captcha detection. Captcha solving is out of scop
 | 🛡️ **Bot Defense & Anti-Debug Bypass** | Automatic detection of **Cloudflare (Turnstile/Challenge)**, **Akamai Bot Manager**, **DataDome**, **GeeTest**, **reCAPTCHA**, **DingXiang**, and **JSVMP opcode dispatcher loops**. Built-in one-click neutralizing of `debugger` traps and console tampering. |
 | 📦 **Webpack Runtime Extraction** | Auto-discovers `webpackChunk*` and `webpackJsonp` arrays, hooks `__webpack_require__`, inventories all internal modules, and exports/dumps internal utilities dynamically. |
 | 🌐 **Dynamic Request Interception** | Powered by CDP `Fetch.requestPaused`: intercept outgoing requests to **block**, **mock synthetic responses** (status, headers, body), or **tamper with headers/POST payloads** live. |
+| 🧵 **Wire-Level Traffic Layer** | A netvein-owned loopback `mitmdump` daemon: capture across all tabs and non-browser clients, history that survives detach, **in-flight breakpoint holds** with pass/modify/drop, **out-of-page replay** with response diffs, curl reconstruction, and **HAR/JSONL export** for Burp/Charles. Requires `pipx install mitmproxy`. |
 | 🔌 **JSRPC Automation Pipeline** | Generate in-page hook stubs, local Python Flask HTTP bridges, and **Burp Suite AutoDecoder** configs to automate encryption/decryption without tedious manual decompilation. |
 | 📜 **Source Recovery & Endpoint Audit** | Automatically download and parse source maps to recover original unminified TypeScript/React source files. Extract all REST endpoints, query parameters, hidden form values, and API keys. |
 
@@ -88,9 +89,11 @@ per-context proxy binding, and captcha detection. Captcha solving is out of scop
 #### Manual Build
 ```bash
 npm install
-npm test       # Runs the 137 automated unit & smoke tests
+npm test       # Runs the 188 automated unit & integration tests
 npm run build  # Compiles to dist/index.js
 ```
+
+> **Traffic tools** (`traffic_*`) require mitmproxy: `pipx install mitmproxy`. Everything else works without it.
 
 ### 2. Browser Startup (Fully Automatic)
 You **do not need to start Chrome manually**. Whenever you call `browser_targets`, `browser_attach`, or `browser_launch`, the MCP server will:
@@ -150,7 +153,7 @@ MCP clients can read session state via URI without invoking tools:
 
 ---
 
-## Tool Catalog (102 Tools)
+## Tool Catalog (112 Tools)
 
 ### 🕹️ Browser Lifecycle & Emulation
 `browser_targets` · `browser_attach` · `browser_detach` · `browser_status` · `navigate` · `page_snapshot` · `screenshot` · `wait_for_selector` · `click_selector` · `type_text` · `press_key` · `hover_selector` · `scroll_page` · `select_option` · `reload_page` · `set_viewport` · `set_user_agent` · `evaluate`
@@ -182,7 +185,7 @@ MCP clients can read session state via URI without invoking tools:
 
 - 📖 [**Installation Guide**](docs/INSTALLATION.md): Complete setup for Windows, Linux, macOS, Claude, Codex, Cursor.
 - 🏗️ [**Architecture & Design**](docs/ARCHITECTURE.md): CDP protocol bridge, AST candidate scoring, memory management.
-- 📚 [**Tool Catalog Reference**](docs/TOOLS.md): Detailed parameter lists, return shapes, and examples for all 102 tools.
+- 📚 [**Tool Catalog Reference**](docs/TOOLS.md): Detailed parameter lists, return shapes, and examples for all 112 tools.
 - 🎯 [**Reverse Engineering Playbooks**](docs/WORKFLOWS.md): Step-by-step tutorials for cracking signatures, bypassing anti-debug, and Webpack dumping.
 
 ---
