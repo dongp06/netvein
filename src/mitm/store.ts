@@ -25,8 +25,8 @@ export interface FlowFilters {
 
 export interface FlowDetail {
   summary: FlowSummary;
-  request: { headers: Record<string, string>; body: string | null };
-  response: { headers: Record<string, string>; body: string | null; status: number | null } | null;
+  request: { headers: Record<string, string>; body: string | null; bodyFile?: string };
+  response: { headers: Record<string, string>; body: string | null; status: number | null; bodyFile?: string } | null;
   wsFrames?: Array<{ dir: "up" | "down"; ts: string; payload: string }>;
 }
 

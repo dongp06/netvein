@@ -16,6 +16,10 @@ export interface StartOptions {
   attachBrowser?: boolean;
   /** Directory for the auto-captured flows jsonl; the daemon appends while running. */
   captureDir?: string;
+  bodiesDir?: string;
+  focus?: string[];
+  dropTelemetry?: boolean;
+  keepSecrets?: boolean;
 }
 
 export interface Endpoint {
@@ -52,14 +56,19 @@ export function buildProxyArgs(endpoint: Endpoint | null, extraArgs: string[] = 
 /** PATH lookup without a dependency: scan PATH like `which`. */
 function whichBinary(binary: string): string | null {
   const dirs = (process.env.PATH ?? "").split(path.delimiter);
+  const extensions = process.platform === "win32"
+    ? (process.env.PATHEXT ? process.env.PATHEXT.split(";").map(e => e.toLowerCase()) : [".exe", ".cmd", ".bat"])
+    : [""];
   for (const dir of dirs) {
     if (!dir) continue;
-    const candidate = path.join(dir, binary);
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch {
-      // not here; keep scanning
+    for (const ext of ["", ...extensions]) {
+      const candidate = path.join(dir, ext && !binary.toLowerCase().endsWith(ext) ? binary + ext : binary);
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch {
+        // not here; keep scanning
+      }
     }
   }
   return null;
@@ -181,8 +190,20 @@ export class MitmManager {
       args.push("--allow-hosts", options.allowHosts.join("|"));
     }
 
+    const envOverrides: Record<string, string> = {
+      NETVEIN_CONFDIR: confDir,
+      NETVEIN_CTL_PORT: "0",
+      NETVEIN_PORTFILE: portFile,
+      NETVEIN_VERSION: VERSION,
+      ...(captureFile ? { NETVEIN_CAPTURE: captureFile } : {}),
+      ...(options.bodiesDir ? { NETVEIN_BODIES_DIR: options.bodiesDir } : {}),
+      ...(options.focus?.length ? { NETVEIN_FOCUS: options.focus.join(",") } : {}),
+      ...(options.dropTelemetry ? { NETVEIN_DROP_TELEMETRY: "1" } : {}),
+      ...(options.keepSecrets !== undefined ? { NETVEIN_KEEP_SECRETS: options.keepSecrets ? "1" : "0" } : {}),
+    };
+
     const proc = spawn(binary, args, {
-      env: { ...process.env, NETVEIN_CONFDIR: confDir, NETVEIN_CTL_PORT: "0", NETVEIN_PORTFILE: portFile, NETVEIN_VERSION: VERSION, ...(captureFile ? { NETVEIN_CAPTURE: captureFile } : {}) },
+      env: { ...process.env, ...envOverrides },
       stdio: ["ignore", "pipe", "pipe"],
     });
     this.proc = proc;
@@ -333,6 +354,23 @@ export class MitmManager {
 
   lastStatsSnapshot(): Stats | null {
     return this.lastStats;
+  }
+
+  get confDir(): string | null {
+    return this.info?.confDir ?? null;
+  }
+
+  async captureConfig(options: {
+    focus?: string[];
+    dropTelemetry?: boolean;
+    keepSecrets?: boolean;
+    bodiesDir?: string;
+    capturePath?: string;
+  }): Promise<Record<string, unknown>> {
+    if (!this.running()) {
+      throw new MitmError("ERR_MITM_NOT_RUNNING", "The traffic daemon is not running.");
+    }
+    return this.command("capture_config", options);
   }
 
   async stop(): Promise<void> {

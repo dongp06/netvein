@@ -13,6 +13,9 @@ export const ERROR_CODES = {
   ERR_MITM_FLOW_NOT_FOUND: "No flow matches that id in the daemon store.",
   ERR_MITM_BAD_PATTERN: "The breakpoint pattern is not a valid regex.",
   ERR_PROJECT_EXISTS: "A .netvein workspace already exists at that path.",
+  ERR_CAPTURE_NO_SESSION: "No active capture session.",
+  ERR_BODY_NOT_FOUND: "The requested body was not found.",
+  ERR_INVALID_PARAM: "Invalid parameter provided to capture tool.",
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_CODES;
@@ -26,7 +29,7 @@ export const DEFAULT_SUGGESTIONS: Record<ErrorCode, string> = {
   ERR_STALE_NODE_ID: "Re-run semantic_view and use the ids from the new snapshot.",
   ERR_NO_SESSION: "Call browser_attach to attach a tab, then retry.",
   ERR_NO_IDENTITY: "Call identity_list to see available identities, or identity_create first.",
-  ERR_PROXY_UNREACHABLE: "Confirm the proxy is running and reachable from this host.",
+  ERR_PROXY_UNREACHABLE: "Confirm the proxy is reachable from this host.",
   ERR_STEALTH_PATCH_FAILED: "Confirm a tab is attached with browser_attach, then retry stealth_enable.",
   ERR_AX_TREE_UNAVAILABLE: "Navigate to a real page first; the tree is unavailable on about:blank and PDF viewers.",
   ERR_CAPTCHA_PROVIDER_DISABLED: "Call captcha_provider_hook with a provider and key, or rely on captcha_detect alone.",
@@ -37,6 +40,9 @@ export const DEFAULT_SUGGESTIONS: Record<ErrorCode, string> = {
   ERR_MITM_FLOW_NOT_FOUND: "List flows with traffic_flows and use a current id.",
   ERR_MITM_BAD_PATTERN: "Use a valid JS regex, for example .*api/login.*",
   ERR_PROJECT_EXISTS: "Pass force to skip existing files, or point dir at a different path.",
+  ERR_CAPTURE_NO_SESSION: "Call capture_session_start to begin a new capture session.",
+  ERR_BODY_NOT_FOUND: "Check available flows with traffic_flows or inspect the session bodies directory.",
+  ERR_INVALID_PARAM: "Verify the parameters passed to the tool.",
 };
 
 export interface OkEnvelope<T> {

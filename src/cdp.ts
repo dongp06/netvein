@@ -38,6 +38,19 @@ import {
   textDiffSummary,
   type AstPattern,
 } from "./analysis.js";
+import {
+  CaptureSessionManager,
+  buildProxyEnvironment,
+  runProxiedCommand,
+  inspectBody,
+  parseSseStream,
+  parseAwsEventStream,
+  searchCaptures,
+  type CaptureSessionConfig,
+  type ProxiedExecResult,
+  type InspectBodyResult,
+  type StreamEvent,
+} from "./capture/index.js";
 import type {
   AnticrawlMatch,
   BreakpointRecord,
@@ -647,6 +660,7 @@ export class CdpSession {
   private identities = new Map<string, IdentityRecord>();
   private captchaProvider: { provider: string; apiKey: string } | null = null;
   readonly mitm = new MitmManager();
+  readonly captureSessions: CaptureSessionManager;
   /** The `.netvein` workspace this session serves, when discovery found one (netvein_init can adopt a new one). */
   workspace: Workspace | null = null;
   private readonly hooks = new Map<string, HookRecord>();
@@ -660,6 +674,7 @@ export class CdpSession {
       port: options.port ?? (process.env.CDP_PORT ? Number(process.env.CDP_PORT) : workspace?.config.cdp?.port ?? 9222),
     };
     this.workspace = workspace;
+    this.captureSessions = new CaptureSessionManager(workspace?.dir ?? options.projectDir);
   }
 
   private resolveWorkspace(explicit?: string): Workspace | null {
@@ -807,6 +822,7 @@ export class CdpSession {
       if (!this.workspace || result.dir.startsWith(this.workspace.dir)) {
         // Re-reading is cheap; keeps config/capture dirs live without a restart.
         this.workspace = loadWorkspace(result.dir);
+        this.captureSessions.updateRootDir(this.workspace.dir);
       }
       return { ...result, adopted: this.workspace.dir === result.dir };
     } catch (error) {
@@ -846,6 +862,239 @@ export class CdpSession {
       stats: this.mitm.lastStatsSnapshot(),
       capture: this.mitm.captureInfo(),
       project: this.workspace ? this.workspace.dir : null,
+    };
+  }
+
+  async captureSessionStart(options: {
+    name?: string;
+    focus?: string[];
+    dropTelemetry?: boolean;
+    keepSecrets?: boolean;
+    storeBodies?: boolean;
+    port?: number;
+  }): Promise<Record<string, unknown>> {
+    const session = await this.captureSessions.start(this.mitm, options);
+    return {
+      success: true,
+      session,
+      proxy: this.mitm.endpoint(),
+    };
+  }
+
+  async captureSessionStop(): Promise<Record<string, unknown>> {
+    const stopped = await this.captureSessions.stop(this.mitm);
+    return {
+      success: true,
+      session: stopped,
+    };
+  }
+
+  captureSessionStatus(): Record<string, unknown> {
+    return {
+      active: this.captureSessions.activeSession,
+      daemon: {
+        state: this.mitm.state(),
+        endpoint: this.mitm.endpoint(),
+        stats: this.mitm.lastStatsSnapshot(),
+      },
+    };
+  }
+
+  captureSessionList(): Record<string, unknown> {
+    const sessions = this.captureSessions.listSessions();
+    return {
+      count: sessions.length,
+      sessions,
+    };
+  }
+
+  captureEnv(focus?: string[]): Record<string, unknown> {
+    const endpoint = this.mitm.endpoint();
+    const port = endpoint?.proxyPort ?? 8080;
+    const confDir = this.mitm.confDir;
+    const env = buildProxyEnvironment(port, confDir, focus);
+    return {
+      proxyUrl: `http://127.0.0.1:${port}`,
+      daemonRunning: this.mitm.running(),
+      caCert: confDir ? path.join(confDir, "mitmproxy-ca-cert.pem") : null,
+      env,
+    };
+  }
+
+  async captureExec(options: {
+    command: string;
+    args?: string[];
+    cwd?: string;
+    env?: Record<string, string>;
+    timeoutMs?: number;
+    inheritStdio?: boolean;
+  }): Promise<ProxiedExecResult> {
+    return runProxiedCommand(this.mitm, {
+      command: options.command,
+      args: options.args,
+      cwd: options.cwd ?? this.workspace?.dir ?? process.cwd(),
+      env: options.env,
+      timeoutMs: options.timeoutMs,
+      inheritStdio: options.inheritStdio,
+      focus: this.captureSessions.activeSession?.focus,
+    });
+  }
+
+  async captureInspectBody(options: {
+    filePath?: string;
+    flowId?: string;
+    part?: "request" | "response";
+    format?: "json" | "text" | "hex" | "base64";
+    maxChars?: number;
+  }): Promise<InspectBodyResult> {
+    if (options.filePath) {
+      if (!fs.existsSync(options.filePath)) {
+        throw new ToolError("ERR_BODY_NOT_FOUND", `File not found: ${options.filePath}`);
+      }
+      return inspectBody({
+        filePath: options.filePath,
+        format: options.format,
+        maxChars: options.maxChars,
+      });
+    }
+
+    if (options.flowId) {
+      const part = options.part ?? "response";
+      if (this.mitm.running()) {
+        try {
+          const reply = await this.mitm.command("get", { flowId: options.flowId });
+          const detail = reply.detail as FlowDetail;
+          const target = part === "request" ? detail.request : detail.response;
+          if (!target) {
+            throw new ToolError("ERR_BODY_NOT_FOUND", `Flow ${options.flowId} has no ${part}`);
+          }
+          if (target.bodyFile && fs.existsSync(target.bodyFile)) {
+            return inspectBody({
+              filePath: target.bodyFile,
+              format: options.format,
+              maxChars: options.maxChars,
+            });
+          }
+          if (target.body) {
+            return inspectBody({
+              rawBase64: Buffer.from(target.body, "utf8").toString("base64"),
+              format: options.format,
+              maxChars: options.maxChars,
+            });
+          }
+        } catch (err) {
+          if (err instanceof ToolError) throw err;
+        }
+      }
+
+      const activeSession = this.captureSessions.activeSession;
+      const searchDirs: string[] = [];
+      if (activeSession) searchDirs.push(activeSession.dir);
+      if (this.workspace) {
+        searchDirs.push(path.join(this.workspace.dir, ".netvein", "captures"));
+      }
+
+      for (const dir of searchDirs) {
+        const bodiesDir = path.join(dir, "bodies");
+        if (fs.existsSync(bodiesDir)) {
+          const candidates = fs.readdirSync(bodiesDir).filter((f) => f.startsWith(`${options.flowId}-${part === "request" ? "req" : "res"}`));
+          if (candidates.length > 0) {
+            return inspectBody({
+              filePath: path.join(bodiesDir, candidates[0]),
+              format: options.format,
+              maxChars: options.maxChars,
+            });
+          }
+        }
+      }
+
+      throw new ToolError("ERR_BODY_NOT_FOUND", `No body found for flow ${options.flowId} (${part})`);
+    }
+
+    throw new ToolError("ERR_INVALID_PARAM", "Either filePath or flowId must be provided.");
+  }
+
+  async captureDecodeStream(options: {
+    type?: "sse" | "eventstream" | "auto";
+    filePath?: string;
+    flowId?: string;
+    content?: string;
+    maxEvents?: number;
+  }): Promise<Record<string, unknown>> {
+    let rawBuffer: Buffer;
+
+    if (options.filePath) {
+      if (!fs.existsSync(options.filePath)) {
+        throw new ToolError("ERR_BODY_NOT_FOUND", `File not found: ${options.filePath}`);
+      }
+      rawBuffer = fs.readFileSync(options.filePath);
+    } else if (options.content) {
+      rawBuffer = Buffer.from(options.content, "utf8");
+    } else if (options.flowId) {
+      const inspected = await this.captureInspectBody({
+        flowId: options.flowId,
+        part: "response",
+        format: "text",
+      });
+      if (inspected.path && fs.existsSync(inspected.path)) {
+        rawBuffer = fs.readFileSync(inspected.path);
+      } else {
+        rawBuffer = Buffer.from(inspected.content, "utf8");
+      }
+    } else {
+      throw new ToolError("ERR_INVALID_PARAM", "Either filePath, flowId, or content must be provided.");
+    }
+
+    const inspected = inspectBody({ rawBase64: rawBuffer.toString("base64"), format: "text" });
+    const rawText = inspected.content;
+    const maxEvents = options.maxEvents ?? 100;
+
+    let streamType = options.type ?? "auto";
+    if (streamType === "auto") {
+      if (rawBuffer.length >= 16 && rawBuffer.readUInt32BE(0) <= rawBuffer.length && rawBuffer.readUInt32BE(4) < rawBuffer.length) {
+        streamType = "eventstream";
+      } else {
+        streamType = "sse";
+      }
+    }
+
+    let events: StreamEvent[];
+    if (streamType === "eventstream") {
+      events = parseAwsEventStream(rawBuffer);
+    } else {
+      events = parseSseStream(rawText);
+    }
+
+    const totalEvents = events.length;
+    const returnedEvents = events.slice(0, maxEvents);
+
+    return {
+      streamType,
+      totalEvents,
+      count: returnedEvents.length,
+      truncated: totalEvents > maxEvents,
+      events: returnedEvents,
+    };
+  }
+
+  captureSearch(options: {
+    query: string;
+    isRegex?: boolean;
+    sessionId?: string;
+    limit?: number;
+  }): Record<string, unknown> {
+    const rootDir = this.workspace?.dir ?? process.cwd();
+    const matches = searchCaptures({
+      rootDir,
+      query: options.query,
+      isRegex: options.isRegex,
+      sessionId: options.sessionId,
+      limit: options.limit,
+    });
+    return {
+      query: options.query,
+      total: matches.length,
+      matches,
     };
   }
 

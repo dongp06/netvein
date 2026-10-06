@@ -1817,6 +1817,176 @@ export function createServer(session: CdpSession): McpServer {
     guardedTool("ERR_MITM_NOT_RUNNING", (args: { format: "har" | "jsonl"; path?: string }) => session.trafficExport(args.format, args.path)),
   );
 
+  server.registerTool(
+    "capture_session_start",
+    {
+      title: "Start a named capture session",
+      description:
+        "Start a structured traffic capture session (writes session.json, flows.jsonl, bodies/ in .netvein/captures/<name>-<timestamp>/). Configures focus domains/URLs, telemetry dropping, secrets policy, and tunes or spawns the wire proxy daemon. Agents can autonomously record targeted interactions.",
+      inputSchema: {
+        name: z.string().optional().describe("Descriptive name for the capture session, e.g. 'stripe-checkout' or 'chat-stream'."),
+        focus: z.array(z.string()).optional().describe("Target domains or URL substrings to focus on. Non-matching traffic tunnels without inspection or noisy telemetry is dropped."),
+        dropTelemetry: z.boolean().default(true).describe("Silently drop common telemetry domains (Sentry, Segment, Datadog) to keep captures clean."),
+        keepSecrets: z.boolean().default(true).describe("Preserve sensitive authentication headers (Authorization, Cookie, etc.) in details instead of redacting them."),
+        storeBodies: z.boolean().default(true).describe("Save raw binary request/response bodies to bodies/ directory with SHA-256 deduplicated filenames."),
+        port: z.number().int().min(1024).max(65535).optional().describe("Proxy port (default: 8080 or workspace config)."),
+      },
+    },
+    guardedTool("ERR_MITM_UNAVAILABLE", (args: {
+      name?: string;
+      focus?: string[];
+      dropTelemetry?: boolean;
+      keepSecrets?: boolean;
+      storeBodies?: boolean;
+      port?: number;
+    }) => session.captureSessionStart(args)),
+  );
+
+  server.registerTool(
+    "capture_session_stop",
+    {
+      title: "Stop active capture session",
+      description: "Stop and finalize the active capture session, persisting final flow counts and timestamps to session.json.",
+      inputSchema: {},
+    },
+    guardedTool("ERR_CAPTURE_NO_SESSION", () => session.captureSessionStop()),
+  );
+
+  server.registerTool(
+    "capture_session_status",
+    {
+      title: "Active capture session status",
+      description: "Inspect the active capture session metadata, active flow counts, bodies storage, and live proxy daemon statistics.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {},
+    },
+    guardedTool("ERR_CAPTURE_NO_SESSION", () => Promise.resolve(session.captureSessionStatus())),
+  );
+
+  server.registerTool(
+    "capture_session_list",
+    {
+      title: "List capture sessions",
+      description: "List all past and active capture sessions saved in the workspace, sorted newest-first with flow counts and directories.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {},
+    },
+    guardedTool("ERR_CAPTURE_NO_SESSION", () => Promise.resolve(session.captureSessionList())),
+  );
+
+  server.registerTool(
+    "capture_exec",
+    {
+      title: "Execute external command with proxy capture",
+      description:
+        "Spawn a command (e.g. node, python, curl, cli tools) with HTTP_PROXY, HTTPS_PROXY, SSL_CERT_FILE, and Node.js fetch/undici proxy shim preconfigured. Captures all external process network activity directly into the active session.",
+      inputSchema: {
+        command: z.string().min(1).describe("Executable or command line to spawn, e.g. 'node', 'python', 'curl', 'npm test'."),
+        args: z.array(z.string()).optional().describe("Arguments to pass to the command."),
+        cwd: z.string().optional().describe("Working directory for the subprocess."),
+        env: z.record(z.string()).optional().describe("Additional environment variables to merge."),
+        timeoutMs: z.number().int().min(1000).max(600000).default(60000).describe("Subprocess execution timeout in milliseconds."),
+      },
+    },
+    guardedTool("ERR_MITM_UNAVAILABLE", (args: {
+      command: string;
+      args?: string[];
+      cwd?: string;
+      env?: Record<string, string>;
+      timeoutMs: number;
+    }) => session.captureExec(args)),
+  );
+
+  server.registerTool(
+    "capture_env",
+    {
+      title: "Get proxy environment configuration",
+      description:
+        "Get proxy environment variables (HTTP_PROXY, HTTPS_PROXY, SSL_CERT_FILE, NODE_OPTIONS) and CA certificate path so agents can configure custom daemons or bash scripts to route through NetVein.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        focus: z.array(z.string()).optional().describe("Target focus domains or URL filters to inject into NETVEIN_FOCUS."),
+      },
+    },
+    guardedTool("ERR_MITM_NOT_RUNNING", (args: { focus?: string[] }) => Promise.resolve(session.captureEnv(args.focus))),
+  );
+
+  server.registerTool(
+    "capture_inspect_body",
+    {
+      title: "Inspect and decode payload body",
+      description:
+        "Inspect a request or response body by file path (from bodies/) or flowId. Automatically decompresses gzip, zlib deflate, and brotli. Supports formatted JSON, raw text, hex dump with ASCII sidebar, or base64.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        filePath: z.string().optional().describe("Path to body file (e.g. '.netvein/captures/.../bodies/flow-res-xxx.bin')."),
+        flowId: z.string().optional().describe("Flow id from traffic_flows or session flows."),
+        part: z.enum(["request", "response"]).default("response").describe("Flow part to inspect when flowId is given."),
+        format: z.enum(["auto", "json", "text", "hex", "base64"]).default("auto").describe("Format for presentation."),
+        maxChars: z.number().int().min(100).max(100000).default(20000).describe("Maximum character budget for the returned preview."),
+      },
+    },
+    guardedTool("ERR_BODY_NOT_FOUND", (args: {
+      filePath?: string;
+      flowId?: string;
+      part: "request" | "response";
+      format: "auto" | "json" | "text" | "hex" | "base64";
+      maxChars: number;
+    }) => session.captureInspectBody({
+      filePath: args.filePath,
+      flowId: args.flowId,
+      part: args.part,
+      format: args.format === "auto" ? "text" : args.format,
+      maxChars: args.maxChars,
+    })),
+  );
+
+  server.registerTool(
+    "capture_decode_stream",
+    {
+      title: "Decode streaming payload (SSE / AWS EventStream)",
+      description:
+        "Parse Server-Sent Events (SSE) or AWS EventStream binary chunks into structured event lists. Agents can inspect live streaming AI chats, events, and WebSocket feeds without manual parsing.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        type: z.enum(["sse", "eventstream", "auto"]).default("auto").describe("Stream decoder type: sse, eventstream, or auto-detect."),
+        filePath: z.string().optional().describe("File path of the streaming payload."),
+        flowId: z.string().optional().describe("Flow id of the streaming request/response."),
+        content: z.string().optional().describe("Raw string content of the stream."),
+        maxEvents: z.number().int().min(1).max(1000).default(100).describe("Maximum number of parsed events to return."),
+      },
+    },
+    guardedTool("ERR_BODY_NOT_FOUND", (args: {
+      type: "sse" | "eventstream" | "auto";
+      filePath?: string;
+      flowId?: string;
+      content?: string;
+      maxEvents: number;
+    }) => session.captureDecodeStream(args)),
+  );
+
+  server.registerTool(
+    "capture_search",
+    {
+      title: "Search captured traffic across sessions",
+      description:
+        "Search through flows, headers, URLs, and bodies across all capture sessions in the workspace. Returns matching flow summaries with highlighted context snippets.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        query: z.string().min(1).describe("Search query string or regex pattern."),
+        isRegex: z.boolean().default(false).describe("Interpret query as regular expression."),
+        sessionId: z.string().optional().describe("Filter to a specific session ID."),
+        limit: z.number().int().min(1).max(200).default(30).describe("Maximum matches to return."),
+      },
+    },
+    guardedTool("ERR_INVALID_PARAM", (args: {
+      query: string;
+      isRegex: boolean;
+      sessionId?: string;
+      limit: number;
+    }) => Promise.resolve(session.captureSearch(args))),
+  );
+
   return server;
 }
 

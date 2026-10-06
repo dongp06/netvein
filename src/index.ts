@@ -14,11 +14,18 @@ The reverse-engineer's browser MCP: Chrome DevTools Protocol session plus a wire
 traffic daemon for web reverse engineering and dynamic analysis.
 
 Usage:
+  netvein [command] [options]
   netvein-mcp [command] [options]
-  netvein-mcp init [dir] [--force]   Create a .netvein workspace (same as the netvein_init tool)
-  netvein-mcp status [dir]           Show the workspace, config and newest captures (same as netvein_project)
+
+Commands:
+  serve [options]                     Start Netvein as an MCP server (--mcp)
+  init [dir] [--force]                Create a .netvein workspace (same as the netvein_init tool)
+  status [dir]                        Show workspace config and newest captures (same as netvein_project)
+  install [--target <agents>] [--force] Install Netvein MCP into AI agents (Claude, Cursor, Antigravity, Codex)
+  uninstall [--target <agents>]        Remove Netvein MCP from AI agents
 
 Options:
+  --mcp               Explicit flag indicating MCP stdio mode (used with serve)
   --project <dir>     .netvein workspace directory (else NETVEIN_PROJECT env, else discovered from cwd)
   --host <string>     CDP endpoint host (default: 127.0.0.1 or CDP_HOST env)
   --port <number>     CDP endpoint port (default: 9222 or CDP_PORT env)
@@ -87,6 +94,32 @@ async function main(): Promise<void> {
   const projectDir = projectIdx !== -1 && argv[projectIdx + 1] ? argv[projectIdx + 1] : undefined;
 
   const sub = argv[0];
+  if (sub === "install" || sub === "uninstall") {
+    const { installAgents, uninstallAgents } = await import("./installer.js");
+    const targetIdx = argv.indexOf("--target");
+    const targets = targetIdx !== -1 && argv[targetIdx + 1] ? argv[targetIdx + 1].split(",").map((s) => s.trim()) : undefined;
+    const force = argv.includes("--force");
+
+    if (sub === "install") {
+      console.log(`Installing Netvein MCP v${VERSION} into AI agents...`);
+      const results = installAgents({ targets, force });
+      for (const r of results) {
+        const mark = r.action === "installed" || r.action === "updated" ? "✓" : r.action === "already-configured" ? "•" : "x";
+        console.log(`  [${mark}] ${r.target}: ${r.action} (${r.path})`);
+        if (r.error) console.log(`      Error: ${r.error}`);
+      }
+    } else {
+      console.log("Uninstalling Netvein MCP from AI agents...");
+      const results = uninstallAgents({ targets });
+      for (const r of results) {
+        const mark = r.action === "removed" ? "✓" : "•";
+        console.log(`  [${mark}] ${r.target}: ${r.action} (${r.path})`);
+        if (r.error) console.log(`      Error: ${r.error}`);
+      }
+    }
+    process.exit(0);
+  }
+
   if (sub === "init" || sub === "status") {
     const { initProject, findProjectDir, loadWorkspace, listCaptures, ProjectExistsError } = await import("./project.js");
     const dir = (await import("node:path")).resolve(argv[1] && !argv[1].startsWith("--") ? argv[1] : process.cwd());
@@ -107,7 +140,7 @@ async function main(): Promise<void> {
       const found = findProjectDir(dir);
       if (!found) {
         console.log(`no .netvein workspace at or above ${dir}`);
-        console.log("create one: netvein-mcp init");
+        console.log("create one: netvein init");
         process.exit(1);
       }
       const ws = loadWorkspace(found);
@@ -118,6 +151,11 @@ async function main(): Promise<void> {
       for (const c of caps) console.log(`  ${c.mtime}  ${c.bytes}B  ${c.file}`);
     }
     process.exit(0);
+  }
+
+  // If invoked with "serve", strip it so subsequent args are clean
+  if (sub === "serve") {
+    argv.shift();
   }
 
   const session = new CdpSession({ host: config.host, port: config.port, projectDir });

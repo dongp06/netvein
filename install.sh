@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "=========================================================="
-echo "   Reverse Engineering MCP Server — Automated Installer"
+echo "         Netvein MCP — Automated Setup & Installer       "
 echo "=========================================================="
 
 # Check Node.js
@@ -22,24 +22,16 @@ cd "$SCRIPT_DIR"
 echo "[*] Installing dependencies..."
 npm install
 
-echo "[*] Running unit and smoke tests..."
-npm test
-
 echo "[*] Building TypeScript source..."
 npm run build
 
-SERVER_JS_PATH="$SCRIPT_DIR/dist/index.js"
-echo "[+] Build complete: $SERVER_JS_PATH"
-
-# Setup Claude Code / Claude Desktop config if exists
-CLAUDE_CONFIG="$HOME/.config/Claude/claude_desktop_config.json"
-if [ -f "$CLAUDE_CONFIG" ]; then
-    echo "[*] Found Claude Desktop configuration at $CLAUDE_CONFIG"
-    echo "[i] You can register reverse-engineering by adding to mcpServers in $CLAUDE_CONFIG"
-fi
+echo "[*] Auto-configuring MCP server into detected AI agents..."
+node dist/index.js install
 
 echo "=========================================================="
 echo "   INSTALLATION COMPLETE!"
 echo "=========================================================="
-echo "To start Chromium with CDP:"
-echo "google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-cdp"
+echo "Netvein MCP server is now ready!"
+echo "- Auto-launches Chromium on port 9222 upon tool invocation."
+echo "- Initialize workspace: netvein init (or npx netvein-mcp init)"
+echo "- Check workspace:      netvein status"

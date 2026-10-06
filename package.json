@@ -4,15 +4,24 @@
   "description": "An advanced Chrome CDP MCP server for web reverse engineering, dynamic analysis, and runtime instrumentation.",
   "type": "module",
   "bin": {
+    "netvein": "./dist/index.js",
     "netvein-mcp": "./dist/index.js",
     "reverse-engineering-mcp": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "python",
+    "install.sh",
+    "install.ps1",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs'); fs.mkdirSync('dist/shims', {recursive:true}); fs.copyFileSync('src/shims/node-proxy.mjs', 'dist/shims/node-proxy.mjs');\"",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test test/index.test.ts test/mitm.test.ts"
+    "test": "node --import tsx --test test/index.test.ts test/capture.test.ts test/mitm.test.ts"
   },
   "keywords": [
     "mcp",

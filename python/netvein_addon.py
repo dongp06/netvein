@@ -47,9 +47,47 @@ def summary(flow):
     }
 
 
-def detail(flow):
+SENSITIVE_HEADERS = {
+    "authorization", "cookie", "set-cookie", "api-key",
+    "x-api-key", "x-auth-token", "x-access-token", "proxy-authorization",
+    "x-amz-security-token", "copilot-session-token"
+}
+
+TELEMETRY_HOST_PARTS = (
+    "telemetry", "metrics", "analytics", "sentry.io",
+    "segment.io", "statsig", "datadoghq", "crashlytics"
+)
+
+
+def save_body(flow_id, side, msg, bodies_dir):
+    if not msg or not msg.raw_content or not bodies_dir:
+        return None, None
+    raw = msg.raw_content
+    sha = hashlib.sha256(raw).hexdigest()
+    filename = f"{flow_id}-{side}-{sha[:12]}.bin"
+    filepath = os.path.join(bodies_dir, filename)
+    try:
+        os.makedirs(bodies_dir, exist_ok=True)
+        if not os.path.exists(filepath):
+            with open(filepath, "wb") as fh:
+                fh.write(raw)
+        return filepath, sha
+    except Exception:
+        return None, sha
+
+
+def detail(flow, bodies_dir=None, keep_secrets=True):
     def headers(msg):
-        return {k.lower(): v for k, v in msg.headers.items(multi=True)} if msg else {}
+        if not msg:
+            return {}
+        out = {}
+        for k, v in msg.headers.items(multi=True):
+            lk = k.lower()
+            if not keep_secrets and lk in SENSITIVE_HEADERS:
+                out[lk] = "[redacted]"
+            else:
+                out[lk] = v
+        return out
 
     def body(msg):
         if msg is None or msg.raw_content is None:
@@ -60,13 +98,31 @@ def detail(flow):
             return None
         return text[:MAX_BODY] if text else None
 
+    req_path, req_sha = save_body(flow.id, "req", flow.request, bodies_dir)
+    res_path, res_sha = save_body(flow.id, "res", flow.response, bodies_dir) if flow.response else (None, None)
+
+    req_dict = {"headers": headers(flow.request), "body": body(flow.request)}
+    if req_path:
+        req_dict["bodyPath"] = req_path
+        req_dict["sha256"] = req_sha
+        req_dict["size"] = len(flow.request.raw_content or b"")
+
+    res_dict = None
+    if flow.response:
+        res_dict = {
+            "headers": headers(flow.response),
+            "body": body(flow.response),
+            "status": flow.response.status_code,
+        }
+        if res_path:
+            res_dict["bodyPath"] = res_path
+            res_dict["sha256"] = res_sha
+            res_dict["size"] = len(flow.response.raw_content or b"")
+
     out = {
         "summary": summary(flow),
-        "request": {"headers": headers(flow.request), "body": body(flow.request)},
-        "response": {
-            "headers": headers(flow.response), "body": body(flow.response),
-            "status": flow.response.status_code if flow.response else None,
-        } if flow.response else None,
+        "request": req_dict,
+        "response": res_dict,
     }
     if flow.websocket:
         # mitmproxy 11: WebSocketData.messages, content is bytes.
@@ -90,6 +146,10 @@ class Netvein:
         self.spki = self._spki()
         self.capture_path = env("NETVEIN_CAPTURE", "")
         self.capture_fh = None
+        self.bodies_dir = env("NETVEIN_BODIES_DIR", "")
+        self.focus = [f.strip().lower() for f in env("NETVEIN_FOCUS", "").split(",") if f.strip()]
+        self.drop_telemetry = env("NETVEIN_DROP_TELEMETRY", "").lower() in ("1", "true", "yes", "on")
+        self.keep_secrets = env("NETVEIN_KEEP_SECRETS", "1").lower() not in ("0", "false", "no", "off")
 
     def _spki(self):
         try:
@@ -105,22 +165,39 @@ class Netvein:
 
     # ---- mitmproxy hooks -------------------------------------------------
     def response(self, flow):
+        if flow.metadata.get("netvein_dropped"):
+            return
         self._remember(flow)
         self._capture(flow)
 
     def error(self, flow):
+        if flow.metadata.get("netvein_dropped"):
+            return
         self._remember(flow)
         self._capture(flow)
 
     def websocket_message(self, flow):
+        if flow.metadata.get("netvein_dropped"):
+            return
         self._remember(flow)
 
     def websocket_end(self, flow):
+        if flow.metadata.get("netvein_dropped"):
+            return
         self._remember(flow)
         # Frames are complete now: append a second, richer line (last wins per id).
         self._capture(flow, force=True)
 
     async def request(self, flow):
+        host = (flow.request.pretty_host or "").lower()
+        url = (flow.request.pretty_url or "").lower()
+        if self.drop_telemetry and any(p in host or p in url for p in TELEMETRY_HOST_PARTS):
+            flow.metadata["netvein_dropped"] = True
+            return
+        if self.focus and not any(p in host or p in url for p in self.focus):
+            flow.metadata["netvein_dropped"] = True
+            return
+
         for bp in self.breakpoints:
             if bp["pattern"].search(flow.request.pretty_url):
                 flow.netvein_held = True
@@ -174,7 +251,7 @@ class Netvein:
                 self.capture_path = ""  # never let disk trouble break capture service
                 return
         try:
-            self.capture_fh.write(json.dumps(detail(flow)) + "\n")
+            self.capture_fh.write(json.dumps(detail(flow, self.bodies_dir, self.keep_secrets)) + "\n")
             flow.netvein_captured = True
         except Exception:
             pass
@@ -271,7 +348,37 @@ class Netvein:
         flow = self.flows.get(args["flowId"])
         if not flow:
             raise LookupError(str(args.get("flowId")))
-        return {"detail": detail(flow)}
+        return {"detail": detail(flow, self.bodies_dir, self.keep_secrets)}
+
+    async def _cmd_capture_config(self, args):
+        if "focus" in args:
+            self.focus = [f.strip().lower() for f in args["focus"] if f.strip()]
+        if "dropTelemetry" in args:
+            self.drop_telemetry = bool(args["dropTelemetry"])
+        if "keepSecrets" in args:
+            self.keep_secrets = bool(args["keepSecrets"])
+        if "bodiesDir" in args:
+            self.bodies_dir = args["bodiesDir"] or ""
+            if self.bodies_dir:
+                try:
+                    os.makedirs(self.bodies_dir, exist_ok=True)
+                except Exception:
+                    pass
+        if "capturePath" in args:
+            if self.capture_fh:
+                try:
+                    self.capture_fh.close()
+                except Exception:
+                    pass
+                self.capture_fh = None
+            self.capture_path = args["capturePath"] or ""
+        return {
+            "focus": self.focus,
+            "dropTelemetry": self.drop_telemetry,
+            "keepSecrets": self.keep_secrets,
+            "bodiesDir": self.bodies_dir,
+            "capturePath": self.capture_path,
+        }
 
     async def _cmd_breakpoint_set(self, args):
         self.breakpoints.append({
@@ -375,7 +482,7 @@ class Netvein:
         if fmt == "jsonl":
             for f in self.flows.values():
                 try:
-                    lines.append(json.dumps(detail(f)))
+                    lines.append(json.dumps(detail(f, self.bodies_dir, self.keep_secrets)))
                 except Exception:
                     skipped += 1
             with open(path, "w") as fh:
@@ -394,7 +501,11 @@ class Netvein:
         held = list(self.hold_events.keys())
         return {"running": True, "flows": len(self.flows), "held": held,
                 "breakpoints": len(self.breakpoints), "uptimeS": int(time.time() - self.start), "spki": self.spki,
-                "capture": self.capture_path or None}
+                "capture": self.capture_path or None,
+                "bodiesDir": self.bodies_dir or None,
+                "focus": self.focus,
+                "dropTelemetry": self.drop_telemetry,
+                "keepSecrets": self.keep_secrets}
 
     async def _cmd_stop(self, args):
         asyncio.get_event_loop().call_later(0.1, lambda: os._exit(0))

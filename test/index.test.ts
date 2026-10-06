@@ -642,10 +642,10 @@ test("Captcha Tools", async (t) => {
 });
 
 test("Tool Surface Contract", async (t) => {
-  await t.test("server exposes exactly 114 tools", () => {
+  await t.test("server exposes exactly 123 tools", () => {
     const server = createServer(new CdpSession());
     const tools = Object.keys((server as any)._registeredTools || {});
-    assert.equal(tools.length, 114, `Expected 114 tools, got ${tools.length}`);
+    assert.equal(tools.length, 123, `Expected 123 tools, got ${tools.length}`);
   });
 
   await t.test("every new tool is registered", () => {
@@ -677,6 +677,15 @@ test("Tool Surface Contract", async (t) => {
       "traffic_export",
       "netvein_init",
       "netvein_project",
+      "capture_session_start",
+      "capture_session_stop",
+      "capture_session_status",
+      "capture_session_list",
+      "capture_exec",
+      "capture_env",
+      "capture_inspect_body",
+      "capture_decode_stream",
+      "capture_search",
     ];
     for (const name of expected) {
       assert.ok(tools.includes(name), `Missing new tool: ${name}`);
@@ -1322,7 +1331,8 @@ test("Replay/export tools at the MCP boundary", async (t) => {
   }
 });
 
-const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
+import { fileURLToPath } from "node:url";
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 test("Netvein Project Workspace (.netvein)", async (t) => {
   const project = await import("../src/project.js");
@@ -1400,7 +1410,7 @@ test("Netvein Project Workspace (.netvein)", async (t) => {
   await t.test("CLI parity: init and status subcommands (like codegraph init/status)", async () => {
     const { spawnSync } = await import("node:child_process");
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "nv-cli-"));
-    const cli = (args: string[]) => spawnSync("npx", ["tsx", "src/index.ts", ...args], { cwd: ROOT, encoding: "utf8" });
+    const cli = (args: string[]) => spawnSync(process.execPath, ["--import", "tsx", "src/index.ts", ...args], { cwd: ROOT, encoding: "utf8" });
     const r1 = cli(["init", root]);
     assert.equal(r1.status, 0, r1.stderr);
     assert.match(r1.stdout, /workspace: .*\.netvein/);
@@ -1415,5 +1425,16 @@ test("Netvein Project Workspace (.netvein)", async (t) => {
     assert.equal(r4.status, 1);
     assert.match(r4.stdout, /no \.netvein workspace/);
     fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test("CLI parity: install and uninstall subcommands (like codegraph install/uninstall)", async () => {
+    const { spawnSync } = await import("node:child_process");
+    const cli = (args: string[]) => spawnSync(process.execPath, ["--import", "tsx", "src/index.ts", ...args], { cwd: ROOT, encoding: "utf8" });
+    const r1 = cli(["install", "--target", "none"]);
+    assert.equal(r1.status, 0);
+    assert.match(r1.stdout, /Installing Netvein MCP/);
+    const r2 = cli(["uninstall", "--target", "none"]);
+    assert.equal(r2.status, 0);
+    assert.match(r2.stdout, /Uninstalling Netvein MCP/);
   });
 });
