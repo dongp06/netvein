@@ -208,6 +208,7 @@ export class MitmManager {
       socket.once("connect", () => {
         socket.removeListener("error", onErr);
         socket.on("data", (chunk) => this.onData(chunk));
+        socket.on("error", () => {}); // ECONNRESET after SIGKILL is expected; close/exit drives state
         socket.on("close", () => this.onClose());
         this.ctlSocket = socket;
         resolve();

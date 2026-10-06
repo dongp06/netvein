@@ -641,10 +641,10 @@ test("Captcha Tools", async (t) => {
 });
 
 test("Tool Surface Contract", async (t) => {
-  await t.test("server exposes exactly 102 tools", () => {
+  await t.test("server exposes exactly 105 tools", () => {
     const server = createServer(new CdpSession());
     const tools = Object.keys((server as any)._registeredTools || {});
-    assert.equal(tools.length, 102, `Expected 102 tools, got ${tools.length}`);
+    assert.equal(tools.length, 105, `Expected 105 tools, got ${tools.length}`);
   });
 
   await t.test("every new tool is registered", () => {
@@ -664,6 +664,9 @@ test("Tool Surface Contract", async (t) => {
       "identity_import",
       "captcha_detect",
       "captcha_provider_hook",
+      "traffic_start",
+      "traffic_stop",
+      "traffic_status",
     ];
     for (const name of expected) {
       assert.ok(tools.includes(name), `Missing new tool: ${name}`);
@@ -1146,9 +1149,9 @@ test("Traffic Session Wiring", async (t) => {
     assert.equal(status.stats, null);
   });
 
-  await t.test("trafficStop on a fresh session is a no-op", async () => {
+  await t.test("trafficStop on a fresh session refuses with ERR_MITM_NOT_RUNNING", async () => {
     const session = new CdpSession();
-    assert.deepEqual(await session.trafficStop(), { stopped: true });
+    await assert.rejects(() => session.trafficStop(), (error: unknown) => error instanceof MitmError && error.code === "ERR_MITM_NOT_RUNNING");
   });
 
   await t.test("envelopeFromThrow keeps registry codes and falls back", () => {
@@ -1160,5 +1163,47 @@ test("Traffic Session Wiring", async (t) => {
     assert.equal(plain.error_code, "ERR_NO_SESSION");
     const bogus = envelopeFromThrow({ code: "NOT_A_CODE", message: "x" }, "ERR_NO_SESSION");
     assert.equal(bogus.error_code, "ERR_NO_SESSION");
+  });
+});
+
+test("Traffic tools at the MCP boundary", async (t) => {
+  const call = async (name: string, args: Record<string, unknown> = {}): Promise<{ payload: Record<string, unknown>; isError?: boolean }> => {
+    const server = createServer(new CdpSession());
+    const entry = (server as any)._registeredTools[name];
+    const result = await entry.handler(args, {} as never);
+    return { payload: JSON.parse(result.content[0].text), isError: result.isError };
+  };
+
+  await t.test("traffic_status returns stopped as data, not an error", async () => {
+    const { payload, isError } = await call("traffic_status");
+    assert.ok(!isError);
+    assert.equal(payload.success, true);
+    const data = payload.data as Record<string, unknown>;
+    assert.equal(data.state, "stopped");
+    assert.equal(data.endpoint, null);
+  });
+
+  await t.test("traffic_stop on a stopped daemon returns the NOT_RUNNING envelope", async () => {
+    const { payload, isError } = await call("traffic_stop");
+    assert.ok(isError);
+    assert.equal(payload.success, false);
+    assert.equal(payload.error_code, "ERR_MITM_NOT_RUNNING");
+    assert.equal(typeof payload.suggestion, "string");
+  });
+
+  await t.test("guardedTool surfaces the MitmError code, not the fallback", async () => {
+    const net = await import("node:net");
+    const squat = net.createServer();
+    await new Promise<void>((resolve) => squat.listen(0, "127.0.0.1", resolve));
+    const port = (squat.address() as { port: number }).port;
+    try {
+      const { payload } = await call("traffic_start", { port });
+      assert.equal(payload.success, false);
+      // Without mitmdump the same throw path must map UNAVAILABLE; with it, PORT_BUSY.
+      assert.ok(["ERR_MITM_PORT_BUSY", "ERR_MITM_UNAVAILABLE"].includes(payload.error_code as string), JSON.stringify(payload));
+      assert.equal(typeof payload.suggestion, "string");
+    } finally {
+      squat.close();
+    }
   });
 });

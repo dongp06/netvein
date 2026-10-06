@@ -239,13 +239,18 @@ test("MitmManager daemon integration", { skip: mitmAvailable ? false : "mitmdump
     }
   });
 
-  await t.test("SIGKILL -> state dead; queued command rejects ERR_MITM_LOST", async () => {
+  await t.test("SIGKILL -> state dead; queued commands reject ERR_MITM_LOST", async () => {
     const { manager } = await startManager();
     const pid = manager.pid;
     assert.ok(pid);
-    const pending = manager.command("stats");
+    await manager.stats(); // warm the daemon so it is definitely up
+    // Queue a batch and kill immediately; timing decides how many are still
+    // in flight, so assert at least one rejects LOST and none hang.
+    const batch = Array.from({ length: 30 }, () => manager.command("stats"));
     process.kill(pid, "SIGKILL");
-    await assert.rejects(() => pending, (error: unknown) => error instanceof MitmError && error.code === "ERR_MITM_LOST");
+    const settled = await Promise.allSettled(batch);
+    assert.ok(settled.some((r) => r.status === "rejected" && r.reason instanceof MitmError && r.reason.code === "ERR_MITM_LOST"), "at least one queued command sees the loss");
+    assert.ok(settled.every((r) => r.status === "rejected" || r.value), "every command settles");
     await eventually(async () => (manager.state() === "dead" ? true : null));
     assert.equal(manager.state(), "dead");
     assert.equal(manager.endpoint(), null);

@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { CdpSession } from "./cdp.js";
-import { ok, type Envelope } from "./errors.js";
+import { envelopeFromThrow, ok, type Envelope, type ErrorCode } from "./errors.js";
 import { SERVER_INSTRUCTIONS } from "./instructions.js";
 import { registerResources } from "./resources.js";
 import { registerPrompts } from "./prompts.js";
@@ -53,6 +53,24 @@ function envelopeTool<TArgs>(handler: (args: TArgs) => Promise<Envelope<unknown>
       ...(result.success ? {} : { isError: true }),
       content: [{ type: "text", text: stringify(result) }],
     };
+  };
+}
+
+/**
+ * For tools whose session layer throws MitmError (carrying its own registry
+ * code) instead of returning an Envelope: map the throw onto the envelope and
+ * mark it isError. Success data is wrapped in the same {success,data} shape.
+ */
+function guardedTool<TArgs>(fallback: ErrorCode, handler: (args: TArgs) => Promise<unknown>) {
+  return async (args: TArgs): Promise<ToolResult> => {
+    try {
+      const data = await handler(args);
+      const result = { success: true as const, data };
+      return { content: [{ type: "text", text: stringify(result) }] };
+    } catch (error) {
+      const envelope = envelopeFromThrow(error, fallback);
+      return { isError: true, content: [{ type: "text", text: stringify(envelope) }] };
+    }
   };
 }
 
@@ -1578,6 +1596,46 @@ export function createServer(session: CdpSession): McpServer {
     safeTool(async (args: { exportModuleId?: string | number; maxModules: number }) =>
       session.unpackWebpack(args),
     ),
+  );
+
+  server.registerTool(
+    "traffic_start",
+    {
+      title: "Start the traffic daemon",
+      description:
+        "Spawn and own a loopback mitmdump daemon with the netvein control addon. Browsers launched by netvein afterwards route through it automatically. Wire-level capture: all tabs, survives detach, replay outside page context. Install mitmproxy (pipx install mitmproxy) first.",
+      inputSchema: {
+        port: z.number().int().min(1024).max(65535).default(8080).describe("Loopback proxy port."),
+        caDir: z.string().optional().describe("Reuse an existing mitmproxy confdir instead of a private temp one."),
+        allowHosts: z.array(z.string()).optional().describe("Regex allow-list: only these hosts are intercepted; everything else tunnels."),
+        attachBrowser: z.boolean().default(true).describe("Route netvein-launched browsers through the proxy."),
+      },
+    },
+    guardedTool("ERR_MITM_UNAVAILABLE", (args: { port?: number; caDir?: string; allowHosts?: string[]; attachBrowser?: boolean }) =>
+      session.trafficStart(args),
+    ),
+  );
+
+  server.registerTool(
+    "traffic_stop",
+    {
+      title: "Stop the traffic daemon",
+      description: "Gracefully stop the daemon. Flow history is lost unless exported first.",
+      inputSchema: {},
+    },
+    guardedTool("ERR_MITM_NOT_RUNNING", () => session.trafficStop()),
+  );
+
+  server.registerTool(
+    "traffic_status",
+    {
+      title: "Traffic daemon status",
+      description:
+        "Daemon state (stopped/running/dead — dead is distinct: the child died and flow history is lost). Proxy endpoint, held-flow ids, last stats.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {},
+    },
+    guardedTool("ERR_MITM_NOT_RUNNING", () => session.trafficStatus()),
   );
 
   server.registerTool(

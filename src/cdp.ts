@@ -1,7 +1,7 @@
 import CDP from "chrome-remote-interface";
 import { launchBrowser, type LaunchOptions, type LaunchResult } from "./launcher.js";
 import { ToolError, ok, toEnvelope, type Envelope } from "./errors.js";
-import { MitmManager, buildProxyArgs } from "./mitm/manager.js";
+import { MitmError, MitmManager, buildProxyArgs } from "./mitm/manager.js";
 import { activePatchIds, buildStealthScript, seedFromName, type StealthProfile } from "./stealth.js";
 import { compressAxTree, diffSnapshots, formatSemanticView, type SemanticSnapshot } from "./pruner.js";
 import {
@@ -688,6 +688,7 @@ export class CdpSession {
   }
 
   async trafficStop(): Promise<Record<string, unknown>> {
+    if (!this.mitm.running()) throw new MitmError("ERR_MITM_NOT_RUNNING", "The traffic daemon is not running.");
     await this.mitm.stop();
     return { stopped: true };
   }
