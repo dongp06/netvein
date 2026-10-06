@@ -288,4 +288,43 @@ test("Traffic session shaping against a real daemon", { skip: mitmAvailable ? fa
       await target.close();
     }
   });
+
+  await t.test("replay hits the origin outside page context; dead target reports inside data", async () => {
+    const { CdpSession } = await import("../src/cdp.js");
+    const session = new CdpSession();
+    const target = await startTarget();
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const exportPath = fs.mkdtempSync(os.tmpdir() + "/netvein-export-") + "/flows.jsonl";
+    try {
+      await session.mitm.start({ port: await freePort() });
+      await proxyRequest(session.mitm.endpoint()!.proxyPort, target.port, "/alpha");
+      const listed = await eventually(async () => {
+        const view = (await session.trafficFlows({ full: true })) as { flows: Array<{ id: string }> };
+        return view.flows.length >= 1 ? view : null;
+      });
+      const id = listed.flows[0].id;
+      const replayed = (await session.trafficReplay(id, {}, true)) as { replay: { status: number | null; body: string | null }; diff: { statusChanged: boolean } };
+      assert.equal(replayed.replay.status, 200);
+      assert.match(replayed.replay.body ?? "", /alpha/);
+      assert.equal(replayed.diff.statusChanged, false);
+      const deadPort = await freePort();
+      const dead = (await session.trafficReplay(id, { url: `http://127.0.0.1:${deadPort}/gone` }, false)) as { replay: { status: number | null; error?: string } };
+      assert.equal(dead.replay.status, null);
+      assert.ok(dead.replay.error, "connection failure must land in data.replay.error, not a rejection");
+      const exported = (await session.trafficExport("jsonl", exportPath)) as { path: string; count: number };
+      assert.equal(exported.path, exportPath);
+      assert.ok(exported.count >= 1);
+      const lines = fs.readFileSync(exportPath, "utf8").trim().split("\n");
+      assert.ok(lines.length >= 1);
+      assert.ok(JSON.parse(lines[0]).summary.id);
+      const har = (await session.trafficExport("har")) as { path: string };
+      assert.ok(fs.existsSync(har.path));
+      assert.ok(JSON.parse(fs.readFileSync(har.path, "utf8")).log.creator.name === "netvein-mcp");
+    } finally {
+      await session.mitm.stop();
+      await target.close();
+      fs.rmSync(exportPath, { force: true });
+    }
+  });
 });

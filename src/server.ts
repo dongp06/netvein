@@ -1751,6 +1751,45 @@ export function createServer(session: CdpSession): McpServer {
     ),
   );
 
+  server.registerTool(
+    "traffic_replay",
+    {
+      title: "Replay a captured flow outside the page",
+      description:
+        "Resend a captured request from the daemon itself (no browser, no page context), with optional url/method/header/body overrides. compare=true diffs the replay against the original flow response. TLS verification is intentionally off for replay targets — RE servers often present certs the loopback CA cannot verify.",
+      inputSchema: {
+        id: z.string().min(1).describe("Flow id to replay."),
+        overrides: z
+          .object({
+            url: z.string().optional().describe("Full replacement URL."),
+            method: z.string().optional().describe("Replacement HTTP method."),
+            headers: z.record(z.string()).optional().describe("Header overrides on top of the captured set."),
+            body: z.string().optional().describe("Replacement request body text."),
+          })
+          .optional()
+          .describe("Per-request mutations."),
+        compare: z.boolean().default(true).describe("Include a path-level diff against the original response."),
+      },
+    },
+    guardedTool("ERR_MITM_NOT_RUNNING", (args: { id: string; overrides?: { url?: string; method?: string; headers?: Record<string, string>; body?: string }; compare: boolean }) =>
+      session.trafficReplay(args.id, args.overrides ?? {}, args.compare),
+    ),
+  );
+
+  server.registerTool(
+    "traffic_export",
+    {
+      title: "Export flow history to disk",
+      description:
+        "Write the daemon's captured flows as HAR 1.2 (for Burp/Charles import) or JSONL detail lines. Path defaults to a temp file; the tool returns the written path and flow count. Flow history is lost on traffic_stop, so export first.",
+      inputSchema: {
+        format: z.enum(["har", "jsonl"]).default("har").describe("Export serialization format."),
+        path: z.string().optional().describe("Absolute or relative destination path on this machine."),
+      },
+    },
+    guardedTool("ERR_MITM_NOT_RUNNING", (args: { format: "har" | "jsonl"; path?: string }) => session.trafficExport(args.format, args.path)),
+  );
+
   return server;
 }
 

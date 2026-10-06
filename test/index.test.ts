@@ -642,10 +642,10 @@ test("Captcha Tools", async (t) => {
 });
 
 test("Tool Surface Contract", async (t) => {
-  await t.test("server exposes exactly 110 tools", () => {
+  await t.test("server exposes exactly 112 tools", () => {
     const server = createServer(new CdpSession());
     const tools = Object.keys((server as any)._registeredTools || {});
-    assert.equal(tools.length, 110, `Expected 110 tools, got ${tools.length}`);
+    assert.equal(tools.length, 112, `Expected 112 tools, got ${tools.length}`);
   });
 
   await t.test("every new tool is registered", () => {
@@ -673,6 +673,8 @@ test("Tool Surface Contract", async (t) => {
       "traffic_curl",
       "traffic_breakpoint_set",
       "traffic_breakpoint_release",
+      "traffic_replay",
+      "traffic_export",
     ];
     for (const name of expected) {
       assert.ok(tools.includes(name), `Missing new tool: ${name}`);
@@ -1298,4 +1300,20 @@ test("Breakpoint tools at the MCP boundary", async (t) => {
     const { payload } = await call("traffic_breakpoint_release", { flowId: "f1", action: "pass" });
     assert.equal(payload.error_code, "ERR_MITM_NOT_RUNNING");
   });
+});
+
+test("Replay/export tools at the MCP boundary", async (t) => {
+  const call = async (name: string, args: Record<string, unknown> = {}): Promise<{ payload: Record<string, unknown>; isError?: boolean }> => {
+    const server = createServer(new CdpSession());
+    const entry = (server as any)._registeredTools[name];
+    const result = await entry.handler(args, {} as never);
+    return { payload: JSON.parse(result.content[0].text), isError: result.isError };
+  };
+  for (const [name, args] of [["traffic_replay", { id: "f1" }], ["traffic_export", { format: "jsonl" }]] as const) {
+    await t.test(`${name} on a stopped daemon returns ERR_MITM_NOT_RUNNING`, async () => {
+      const { payload, isError } = await call(name, { ...args });
+      assert.ok(isError);
+      assert.equal(payload.error_code, "ERR_MITM_NOT_RUNNING");
+    });
+  }
 });

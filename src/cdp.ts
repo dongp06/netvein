@@ -1,8 +1,10 @@
 import CDP from "chrome-remote-interface";
+import * as os from "node:os";
+import * as path from "node:path";
 import { launchBrowser, type LaunchOptions, type LaunchResult } from "./launcher.js";
 import { ToolError, ok, toEnvelope, type Envelope } from "./errors.js";
 import { MitmError, MitmManager, buildProxyArgs } from "./mitm/manager.js";
-import { buildCurl, formatFlowList, shapeFlowDetail, type FlowFilters, type FlowPart, type FlowSummary } from "./mitm/store.js";
+import { buildCurl, diffReplay, formatFlowList, shapeFlowDetail, type FlowDetail, type FlowFilters, type FlowPart, type FlowSummary, type ReplayResponse } from "./mitm/store.js";
 import { activePatchIds, buildStealthScript, seedFromName, type StealthProfile } from "./stealth.js";
 import { compressAxTree, diffSnapshots, formatSemanticView, type SemanticSnapshot } from "./pruner.js";
 import {
@@ -714,6 +716,26 @@ export class CdpSession {
     patch?: { url?: string; method?: string; headers?: Record<string, string>; body?: string },
   ): Promise<Record<string, unknown>> {
     return (await this.mitm.command("breakpoint_release", { flowId, action, patch })) as Record<string, unknown>;
+  }
+
+  async trafficReplay(id: string, overrides: { url?: string; method?: string; headers?: Record<string, string>; body?: string }, compare = true): Promise<Record<string, unknown>> {
+    const reply = await this.mitm.command("replay", { flowId: id, overrides });
+    const replay = reply.replay as ReplayResponse;
+    const out: Record<string, unknown> = { id, replay };
+    if (compare) {
+      const original = (await this.mitm.command("get", { flowId: id })).detail as FlowDetail;
+      out.diff = diffReplay(
+        { status: original.response?.status ?? null, body: original.response?.body ?? null, headers: {} },
+        replay,
+        100,
+      );
+    }
+    return out;
+  }
+
+  async trafficExport(format: "har" | "jsonl", exportPath?: string): Promise<Record<string, unknown>> {
+    const target = exportPath ?? path.join(os.tmpdir(), `netvein-traffic-${Date.now()}.${format === "har" ? "har" : "jsonl"}`);
+    return (await this.mitm.command("export", { format, path: target })) as Record<string, unknown>;
   }
 
   async trafficFlows(filters: FlowFilters & { full?: boolean }): Promise<Record<string, unknown>> {
