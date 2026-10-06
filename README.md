@@ -595,4 +595,4 @@ npm run build
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [MIT License](LICENSE) &copy; 2026 [dongp06](https://github.com/dongp06).
