@@ -279,6 +279,10 @@ test("Traffic session shaping against a real daemon", { skip: mitmAvailable ? fa
       assert.equal(detail.response.status, 200);
       const curl = (await session.trafficCurl(id)) as { curl: string };
       assert.match(curl.curl, /^curl -X GET 'http:\/\/127\.0\.0\.1:\d+\/alpha'/);
+      const table = (await session.trafficBreakpointSet(".*never-match.*", 5000)) as { breakpoints: Array<{ pattern: string }> };
+      assert.ok(table.breakpoints.some((b) => b.pattern === ".*never-match.*"));
+      await assert.rejects(() => session.trafficBreakpointRelease("ghost", "pass"), (error: unknown) => error instanceof MitmError && error.code === "ERR_MITM_FLOW_NOT_FOUND");
+      await assert.rejects(() => session.trafficBreakpointSet(".*[", 5000), (error: unknown) => error instanceof Error && error.message.includes("Invalid regex"));
     } finally {
       await session.mitm.stop();
       await target.close();

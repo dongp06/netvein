@@ -1710,6 +1710,47 @@ export function createServer(session: CdpSession): McpServer {
     guardedTool("ERR_MITM_NOT_RUNNING", (args: { id: string }) => session.trafficCurl(args.id)),
   );
 
+  server.registerTool(
+    "traffic_breakpoint_set",
+    {
+      title: "Hold matching flows in flight",
+      description:
+        "Add a URL-regex breakpoint to the daemon. Matching requests pause before reaching the server until traffic_breakpoint_release passes/modifies/drops them; maxHoldMs expirations auto-pass. Returns the full breakpoint table.",
+      inputSchema: {
+        pattern: z.string().min(1).describe("JS regex searched against the full request URL."),
+        maxHoldMs: z.number().int().min(100).max(300000).default(60000).describe("Auto-pass the flow after this long if nobody releases it."),
+      },
+    },
+    guardedTool("ERR_MITM_NOT_RUNNING", (args: { pattern: string; maxHoldMs: number }) =>
+      session.trafficBreakpointSet(args.pattern, args.maxHoldMs),
+    ),
+  );
+
+  server.registerTool(
+    "traffic_breakpoint_release",
+    {
+      title: "Release a held flow",
+      description:
+        "Decide a held flow: pass unchanged, modify (patch url/method/headers/body before it reaches the server), or drop it entirely. Unknown or already-released ids return ERR_MITM_FLOW_NOT_FOUND.",
+      inputSchema: {
+        flowId: z.string().min(1).describe("Flow id from traffic_flows (held rows show [HELD])."),
+        action: z.enum(["pass", "modify", "drop"]).default("pass").describe("What to do with the held request."),
+        patch: z
+          .object({
+            url: z.string().optional().describe("Rewrite the full request URL."),
+            method: z.string().optional().describe("Rewrite the HTTP method."),
+            headers: z.record(z.string()).optional().describe("Headers to set on the outgoing request."),
+            body: z.string().optional().describe("Replace the request body text."),
+          })
+          .optional()
+          .describe("Modification payload; only meaningful with action=modify."),
+      },
+    },
+    guardedTool("ERR_MITM_NOT_RUNNING", (args: { flowId: string; action: "pass" | "modify" | "drop"; patch?: { url?: string; method?: string; headers?: Record<string, string>; body?: string } }) =>
+      session.trafficBreakpointRelease(args.flowId, args.action, args.patch),
+    ),
+  );
+
   return server;
 }
 

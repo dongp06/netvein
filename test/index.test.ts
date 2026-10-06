@@ -642,10 +642,10 @@ test("Captcha Tools", async (t) => {
 });
 
 test("Tool Surface Contract", async (t) => {
-  await t.test("server exposes exactly 108 tools", () => {
+  await t.test("server exposes exactly 110 tools", () => {
     const server = createServer(new CdpSession());
     const tools = Object.keys((server as any)._registeredTools || {});
-    assert.equal(tools.length, 108, `Expected 108 tools, got ${tools.length}`);
+    assert.equal(tools.length, 110, `Expected 110 tools, got ${tools.length}`);
   });
 
   await t.test("every new tool is registered", () => {
@@ -671,6 +671,8 @@ test("Tool Surface Contract", async (t) => {
       "traffic_flows",
       "traffic_flow",
       "traffic_curl",
+      "traffic_breakpoint_set",
+      "traffic_breakpoint_release",
     ];
     for (const name of expected) {
       assert.ok(tools.includes(name), `Missing new tool: ${name}`);
@@ -1268,4 +1270,32 @@ test("Traffic list/flow/curl tools at the MCP boundary", async (t) => {
       assert.equal(typeof payload.suggestion, "string");
     });
   }
+});
+
+test("Breakpoint tools at the MCP boundary", async (t) => {
+  const call = async (name: string, args: Record<string, unknown> = {}): Promise<{ payload: Record<string, unknown>; isError?: boolean }> => {
+    const server = createServer(new CdpSession());
+    const entry = (server as any)._registeredTools[name];
+    const result = await entry.handler(args, {} as never);
+    return { payload: JSON.parse(result.content[0].text), isError: result.isError };
+  };
+
+  await t.test("breakpoint_set with a valid pattern on a stopped daemon reports NOT_RUNNING", async () => {
+    const { payload } = await call("traffic_breakpoint_set", { pattern: ".*api/login.*" });
+    assert.equal(payload.success, false);
+    assert.equal(payload.error_code, "ERR_MITM_NOT_RUNNING");
+  });
+
+  await t.test("breakpoint_set with an invalid regex reports BAD_PATTERN before touching the daemon", async () => {
+    const { payload, isError } = await call("traffic_breakpoint_set", { pattern: ".*[" });
+    assert.ok(isError);
+    assert.equal(payload.error_code, "ERR_MITM_BAD_PATTERN");
+    assert.match(payload.message as string, /Invalid regex/);
+    assert.equal(typeof payload.suggestion, "string");
+  });
+
+  await t.test("breakpoint_release on a stopped daemon reports NOT_RUNNING", async () => {
+    const { payload } = await call("traffic_breakpoint_release", { flowId: "f1", action: "pass" });
+    assert.equal(payload.error_code, "ERR_MITM_NOT_RUNNING");
+  });
 });

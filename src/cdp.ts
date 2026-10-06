@@ -694,6 +694,28 @@ export class CdpSession {
     return { stopped: true };
   }
 
+  async trafficBreakpointSet(pattern: string, maxHoldMs: number): Promise<Record<string, unknown>> {
+    try {
+      new RegExp(pattern);
+    } catch (error) {
+      throw new ToolError("ERR_MITM_BAD_PATTERN", `Invalid regex: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    await this.mitm.command("breakpoint_set", { pattern, maxHoldMs });
+    return (await this.mitm.command("breakpoints")) as Record<string, unknown>;
+  }
+
+  async trafficBreakpointList(): Promise<Record<string, unknown>> {
+    return (await this.mitm.command("breakpoints")) as Record<string, unknown>;
+  }
+
+  async trafficBreakpointRelease(
+    flowId: string,
+    action: "pass" | "modify" | "drop",
+    patch?: { url?: string; method?: string; headers?: Record<string, string>; body?: string },
+  ): Promise<Record<string, unknown>> {
+    return (await this.mitm.command("breakpoint_release", { flowId, action, patch })) as Record<string, unknown>;
+  }
+
   async trafficFlows(filters: FlowFilters & { full?: boolean }): Promise<Record<string, unknown>> {
     const { full, ...wire } = filters;
     const reply = await this.mitm.command("list", wire);

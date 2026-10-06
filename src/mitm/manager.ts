@@ -88,6 +88,7 @@ export class MitmError extends Error {
 /** Daemon error strings map onto registry codes; everything else is a loss. */
 function mapDaemonError(text: string): ErrorCode {
   if (/not found|no flow/i.test(text)) return "ERR_MITM_FLOW_NOT_FOUND";
+  if (/pattern|regex|compile/i.test(text)) return "ERR_MITM_BAD_PATTERN";
   return "ERR_MITM_LOST";
 }
 
