@@ -74,3 +74,101 @@ export function formatFlowList(flows: readonly FlowSummary[]): string {
   }
   return lines.join("\n");
 }
+
+/** Pretty JSON when parseable, binary marker when not, truncated to maxChars. */
+export function beautifyBody(body: string | null, contentType: string | null, maxChars: number): string {
+  if (body === null || body === undefined) return "";
+  const isText = contentType === null || /json|text|xml|urlencoded|javascript|html/.test(contentType);
+  if (!isText) return `[binary ${Buffer.byteLength(body)} bytes]`;
+  let out = body;
+  if (contentType && contentType.includes("json")) {
+    try {
+      out = JSON.stringify(JSON.parse(body), null, 2);
+    } catch {
+      // Not valid JSON after all; keep the raw text.
+    }
+  }
+  if (out.length > maxChars) return `${out.slice(0, maxChars)}…[truncated]`;
+  return out;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Ready-to-run curl from a captured flow. Curated headers unless full. */
+export function buildCurl(detail: FlowDetail, fullHeaders = false): string {
+  const headers = fullHeaders
+    ? detail.request.headers
+    : stripHeaders(detail.request.headers, "request");
+  const argv = ["curl", "-X", detail.summary.method, shellQuote(detail.summary.scheme + "://" + detail.summary.host + detail.summary.path)];
+  for (const [key, value] of Object.entries(headers)) {
+    argv.push("-H", shellQuote(`${key}: ${value}`));
+  }
+  if (detail.request.body !== null && detail.request.body !== undefined) {
+    argv.push("--data-raw", shellQuote(detail.request.body));
+  }
+  return argv.join(" ");
+}
+
+export interface ReplayResponse {
+  status: number | null;
+  headers: Record<string, string>;
+  body: string | null;
+  error?: string;
+}
+
+function flatten(value: unknown, prefix = ""): Record<string, unknown> {
+  if (value === null || typeof value !== "object") return { [prefix || "$"]: value };
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (child !== null && typeof child === "object") Object.assign(out, flatten(child, path));
+    else out[path] = child;
+  }
+  return out;
+}
+
+function safeJson(body: string | null): unknown {
+  if (body === null || body === undefined) return undefined;
+  try {
+    const parsed = JSON.parse(body);
+    return parsed !== null && typeof parsed === "object" ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Bounded, path-level comparison of an original flow body against a replay. */
+export function diffReplay(
+  original: { status: number | null; body: string | null; headers: Record<string, string> },
+  replay: ReplayResponse,
+  maxEntries: number,
+): { statusChanged: boolean; statusFrom: number | null; statusTo: number | null; body: { changed: string[]; added: string[]; removed: string[] } | null; truncated: boolean } {
+  const before = flatten(safeJson(original.body));
+  const after = flatten(safeJson(replay.body));
+  const changed: string[] = [];
+  const added: string[] = [];
+  const removed: string[] = [];
+  for (const [path, value] of Object.entries(after)) {
+    if (!(path in before)) added.push(path);
+    else if (!sameValue(before[path], value)) changed.push(path);
+  }
+  for (const path of Object.keys(before)) {
+    if (!(path in after)) removed.push(path);
+  }
+  const truncated = changed.length + added.length + removed.length > maxEntries;
+  const cap = (list: string[]) => list.slice(0, maxEntries);
+  const parseable = safeJson(original.body) !== undefined || safeJson(replay.body) !== undefined;
+  return {
+    statusChanged: original.status !== replay.status,
+    statusFrom: original.status,
+    statusTo: replay.status,
+    body: parseable ? { changed: cap(changed), added: cap(added), removed: cap(removed) } : null,
+    truncated,
+  };
+}

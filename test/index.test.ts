@@ -1064,3 +1064,63 @@ test("Traffic Store", async (t) => {
     assert.ok(text.startsWith("2 flows"));
   });
 });
+
+test("Traffic Store shaping II", async (t) => {
+  await t.test("beautifyBody pretty-prints JSON bodies", () => {
+    assert.equal(beautifyBody('{"sig":"x"}', "application/json", 200), '{\n  "sig": "x"\n}');
+  });
+
+  await t.test("beautifyBody truncates to maxChars with marker", () => {
+    const out = beautifyBody("x".repeat(50), "text/plain", 20);
+    assert.ok(out.length <= 34, `len=${out.length}`);
+    assert.ok(out.endsWith("[truncated]"));
+  });
+
+  await t.test("beautifyBody passes null and non-text through", () => {
+    assert.equal(beautifyBody(null, null, 100), "");
+    assert.equal(beautifyBody("b", "application/octet-stream", 100), "[binary 1 bytes]");
+  });
+
+  await t.test("buildCurl emits method, url, curated headers and shell-escaped body", () => {
+    const detail: FlowDetail = {
+      summary: { id: "f9", ts: "2026-10-06T00:00:00Z", method: "POST", host: "api.example.com", path: "/v1/sign?a=1", status: 200, bytes: 9, durationMs: 10, held: false, expired: false, scheme: "https" },
+      request: { headers: { "content-type": "application/json", cookie: "sid=x", "accept-encoding": "gzip" }, body: `{"q":"it's"}` },
+      response: null,
+    };
+    const cmd = buildCurl(detail);
+    assert.ok(cmd.startsWith("curl -X POST 'https://api.example.com/v1/sign?a=1'"), cmd);
+    assert.ok(cmd.includes("-H 'content-type: application/json'"));
+    assert.ok(cmd.includes("-H 'cookie: sid=x'"));
+    assert.ok(!cmd.includes("accept-encoding"), "noise headers must not leak into the curl");
+    assert.ok(cmd.includes(`--data-raw '{"q":"it'\\''s"}'`), `body not escaped: ${cmd}`);
+  });
+
+  await t.test("diffReplay compares status and JSON bodies with dot paths", () => {
+    const diff = diffReplay(
+      { status: 200, body: '{"sig":"a","ts":1}', headers: {} },
+      { status: 201, headers: {}, body: '{"sig":"b","nonce":2}' },
+      50,
+    );
+    assert.equal(diff.statusChanged, true);
+    assert.equal(diff.statusFrom, 200);
+    assert.equal(diff.statusTo, 201);
+    assert.deepEqual(diff.body!.changed, ["sig"]);
+    assert.deepEqual(diff.body!.added, ["nonce"]);
+    assert.deepEqual(diff.body!.removed, ["ts"]);
+    assert.equal(diff.truncated, false);
+  });
+
+  await t.test("diffReplay degrades when either side is not JSON", () => {
+    const diff = diffReplay({ status: 200, body: "plain", headers: {} }, { status: 200, headers: {}, body: "plain2" }, 50);
+    assert.equal(diff.statusChanged, false);
+    assert.equal(diff.body, null);
+  });
+
+  await t.test("diffReplay caps entries and flags truncated", () => {
+    const a = {}; const b = {};
+    for (let i = 0; i < 80; i++) { (a as any)["k" + i] = 1; (b as any)["k" + i] = 2; }
+    const diff = diffReplay({ status: 200, body: JSON.stringify(a), headers: {} }, { status: 200, headers: {}, body: JSON.stringify(b) }, 10);
+    assert.equal(diff.body!.changed.length, 10);
+    assert.equal(diff.truncated, true);
+  });
+});
