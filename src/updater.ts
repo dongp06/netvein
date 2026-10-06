@@ -51,7 +51,7 @@ export interface UpdateDeps {
 }
 
 export const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000;
-export const DEFAULT_REPO_URL = "https://github.com/dongp06/netvein-mcp";
+export const DEFAULT_REPO_URL = "https://github.com/dongp06/netvein";
 
 /** Parse `v0.4.0`, `0.4.0` or `1.2` into a comparable triple. Null for anything else. */
 export function parseVersion(tag: string): [number, number, number] | null {

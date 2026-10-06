@@ -41,11 +41,11 @@
   "author": "dongp06",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dongp06/netvein-mcp.git"
+    "url": "git+https://github.com/dongp06/netvein.git"
   },
-  "homepage": "https://dongp06.github.io/netveiin",
+  "homepage": "https://dongp06.github.io/netvein",
   "bugs": {
-    "url": "https://github.com/dongp06/netvein-mcp/issues"
+    "url": "https://github.com/dongp06/netvein/issues"
   },
   "publishConfig": {
     "access": "public"

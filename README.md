@@ -4,7 +4,7 @@
 
 Already installed? Run `netvein install` to wire up new agents.
 
-[Website & Documentation](https://dongp06.github.io/netveiin) · Follow [@dongp06](https://github.com/dongp06) on GitHub for updates.
+[Website & Documentation](https://dongp06.github.io/netvein) · Follow [@dongp06](https://github.com/dongp06) on GitHub for updates.
 
 ### Supercharge Claude Code, Cursor, Codex, OpenCode, Hermes Agent, Gemini, and Antigravity with Autonomous Web Reverse Engineering & Wire-Level Dynamic Instrumentation
 
@@ -79,10 +79,10 @@ If you don't have Node.js installed, use our standalone installer:
 
 ```bash
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/dongp06/netvein-mcp/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dongp06/netvein/main/install.sh | sh
 
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/dongp06/netvein-mcp/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/dongp06/netvein/main/install.ps1 | iex
 ```
 
 ---

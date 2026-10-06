@@ -1016,7 +1016,7 @@ test("Netvein Rename", async (t) => {
 
   await t.test("default repo URL points at the renamed repository", async () => {
     const m = await import("../src/updater.js");
-    assert.equal(m.DEFAULT_REPO_URL, "https://github.com/dongp06/netvein-mcp");
+    assert.equal(m.DEFAULT_REPO_URL, "https://github.com/dongp06/netvein");
   });
 
   await t.test("NETVEIN_UPDATE_CHECK disables the check", async () => {
