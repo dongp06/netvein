@@ -1,9 +1,18 @@
 import CDP from "chrome-remote-interface";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { launchBrowser, type LaunchOptions, type LaunchResult } from "./launcher.js";
 import { ToolError, ok, toEnvelope, type Envelope } from "./errors.js";
 import { MitmError, MitmManager, buildProxyArgs } from "./mitm/manager.js";
+import {
+  ProjectExistsError,
+  findProjectDir,
+  initProject,
+  listCaptures,
+  loadWorkspace,
+  type Workspace,
+} from "./project.js";
 import { buildCurl, diffReplay, formatFlowList, shapeFlowDetail, type FlowDetail, type FlowFilters, type FlowPart, type FlowSummary, type ReplayResponse } from "./mitm/store.js";
 import { activePatchIds, buildStealthScript, seedFromName, type StealthProfile } from "./stealth.js";
 import { compressAxTree, diffSnapshots, formatSemanticView, type SemanticSnapshot } from "./pruner.js";
@@ -63,6 +72,8 @@ const MAX_STORED_TEXT = 20_000;
 export interface CdpOptions {
   host: string;
   port: number;
+  /** Override the `.netvein` workspace directory (else: env NETVEIN_PROJECT, else upward discovery from cwd). */
+  projectDir?: string;
 }
 
 export interface TargetSelector {
@@ -636,15 +647,34 @@ export class CdpSession {
   private identities = new Map<string, IdentityRecord>();
   private captchaProvider: { provider: string; apiKey: string } | null = null;
   readonly mitm = new MitmManager();
+  /** The `.netvein` workspace this session serves, when discovery found one (netvein_init can adopt a new one). */
+  workspace: Workspace | null = null;
   private readonly hooks = new Map<string, HookRecord>();
   private readonly taintTrackers = new Map<string, TaintTrackerRecord>();
   private readonly bundleSnapshots = new Map<string, Map<string, BundleScriptSnapshot>>();
 
   constructor(options: Partial<CdpOptions> = {}) {
+    const workspace = this.resolveWorkspace(options.projectDir);
     this.options = {
-      host: options.host ?? process.env.CDP_HOST ?? "127.0.0.1",
-      port: options.port ?? Number(process.env.CDP_PORT ?? 9222),
+      host: options.host ?? process.env.CDP_HOST ?? workspace?.config.cdp?.host ?? "127.0.0.1",
+      port: options.port ?? (process.env.CDP_PORT ? Number(process.env.CDP_PORT) : workspace?.config.cdp?.port ?? 9222),
     };
+    this.workspace = workspace;
+  }
+
+  private resolveWorkspace(explicit?: string): Workspace | null {
+    let dir: string | null = null;
+    if (explicit) dir = path.resolve(explicit);
+    else if (process.env.NETVEIN_PROJECT) dir = path.resolve(process.env.NETVEIN_PROJECT);
+    else dir = findProjectDir(process.cwd());
+    if (!dir) return null;
+    try {
+      return loadWorkspace(dir);
+    } catch (error) {
+      // A broken config must not brick the server; degrade to no-workspace and say so out-of-band.
+      process.stderr.write(`[netvein-mcp] ignoring workspace ${dir}: ${error instanceof Error ? error.message : String(error)}\n`);
+      return null;
+    }
   }
 
   get isConnected(): boolean {
@@ -681,13 +711,27 @@ export class CdpSession {
     });
   }
 
-  async trafficStart(options: { port?: number; caDir?: string; allowHosts?: string[]; attachBrowser?: boolean }): Promise<Record<string, unknown>> {
-    const started = await this.mitm.start(options);
+  async trafficStart(options: { port?: number; caDir?: string; allowHosts?: string[]; attachBrowser?: boolean; capture?: boolean }): Promise<Record<string, unknown>> {
+    const cfg = this.workspace?.config.traffic ?? {};
+    const wantCapture = options.capture ?? cfg.capture ?? this.workspace !== null;
+    const captureDir = wantCapture ? this.workspace?.captureDir : undefined;
+    const started = await this.mitm.start({
+      port: options.port ?? cfg.port,
+      caDir: options.caDir ?? cfg.caDir,
+      allowHosts: options.allowHosts ?? cfg.allowHosts,
+      attachBrowser: options.attachBrowser ?? cfg.attachBrowser,
+      captureDir,
+    });
     const notes: string[] = [];
     if (this.isConnected) {
       notes.push("A browser is already attached without the proxy; relaunch via browser_launch to route it through netvein.");
     }
-    return { ...started, notes };
+    if (wantCapture && !this.workspace) {
+      notes.push("Capture requested but no .netvein workspace exists; run netvein_init to get a capture directory.");
+    } else if (captureDir) {
+      notes.push(`Auto-capture is on: finished flows append to ${this.mitm.captureInfo()?.file ?? captureDir}.`);
+    }
+    return { ...started, notes, capture: captureDir ? this.mitm.captureInfo() : null };
   }
 
   async trafficStop(): Promise<Record<string, unknown>> {
@@ -734,8 +778,43 @@ export class CdpSession {
   }
 
   async trafficExport(format: "har" | "jsonl", exportPath?: string): Promise<Record<string, unknown>> {
-    const target = exportPath ?? path.join(os.tmpdir(), `netvein-traffic-${Date.now()}.${format === "har" ? "har" : "jsonl"}`);
+    const target = exportPath
+      ?? (this.workspace
+        ? path.join(this.workspace.captureDir, `export-${new Date().toISOString().replace(/[:.]/g, "-")}.${format}`)
+        : path.join(os.tmpdir(), `netvein-traffic-${Date.now()}.${format === "har" ? "har" : "jsonl"}`));
+    if (this.workspace) fs.mkdirSync(this.workspace.captureDir, { recursive: true });
     return (await this.mitm.command("export", { format, path: target })) as Record<string, unknown>;
+  }
+
+  netveinProject(): Record<string, unknown> {
+    if (!this.workspace) {
+      return { dir: null, hint: "Run netvein_init (or `netvein-mcp init`) in a project to enable config + auto-capture." };
+    }
+    return {
+      dir: this.workspace.dir,
+      config: this.workspace.config,
+      captureDir: this.workspace.captureDir,
+      notesDir: this.workspace.notesDir,
+      captures: listCaptures(this.workspace),
+    };
+  }
+
+  netveinInit(dir?: string, force = false): Record<string, unknown> {
+    const target = dir ?? process.cwd();
+    try {
+      const result = initProject(target, force);
+      // Pick up the fresh workspace when it shadows the current one.
+      if (!this.workspace || result.dir.startsWith(this.workspace.dir)) {
+        // Re-reading is cheap; keeps config/capture dirs live without a restart.
+        this.workspace = loadWorkspace(result.dir);
+      }
+      return { ...result, adopted: this.workspace.dir === result.dir };
+    } catch (error) {
+      if (error instanceof ProjectExistsError) {
+        throw new ToolError("ERR_PROJECT_EXISTS", error.message, "Pass force:true to fill in missing files, or target a different directory.");
+      }
+      throw error;
+    }
   }
 
   async trafficFlows(filters: FlowFilters & { full?: boolean }): Promise<Record<string, unknown>> {
@@ -765,6 +844,8 @@ export class CdpSession {
       endpoint: this.mitm.endpoint(),
       held,
       stats: this.mitm.lastStatsSnapshot(),
+      capture: this.mitm.captureInfo(),
+      project: this.workspace ? this.workspace.dir : null,
     };
   }
 

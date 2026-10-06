@@ -7,12 +7,15 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ErrorCode } from "../errors.js";
 import { VERSION } from "../version.js";
+import { captureStamp } from "../project.js";
 
 export interface StartOptions {
   port?: number;
   caDir?: string;
   allowHosts?: string[];
   attachBrowser?: boolean;
+  /** Directory for the auto-captured flows jsonl; the daemon appends while running. */
+  captureDir?: string;
 }
 
 export interface Endpoint {
@@ -99,7 +102,9 @@ export class MitmManager {
   private pending = new Map<number, { resolve: (v: Record<string, unknown>) => void; reject: (e: Error) => void }>();
   private nextId = 1;
   private buffer = "";
-  private info: { proxyPort: number; confDir: string; spki: string | null; attachBrowser: boolean } | null = null;
+  private info: { proxyPort: number; confDir: string; spki: string | null; attachBrowser: boolean; captureFile: string | null } | null = null;
+  /** Survives daemon death on purpose: the file remains readable after a crash. */
+  private captureFile: string | null = null;
   private lastStats: Stats | null = null;
   private died = false;
   private stopping = false;
@@ -123,6 +128,18 @@ export class MitmManager {
   endpoint(): Endpoint | null {
     if (!this.info || this.died) return null;
     return { proxyPort: this.info.proxyPort, spki: this.info.spki, attachBrowser: this.info.attachBrowser };
+  }
+
+  /** Auto-capture target for the current or most recent daemon run. */
+  captureInfo(): { file: string; exists: boolean; bytes: number } | null {
+    const file = this.captureFile;
+    if (!file) return null;
+    try {
+      const stat = fs.statSync(file);
+      return { file, exists: true, bytes: stat.size };
+    } catch {
+      return { file, exists: false, bytes: 0 };
+    }
   }
 
   async start(options: StartOptions = {}): Promise<{ proxyPort: number; spki: string | null; confDir: string; alreadyRunning: boolean }> {
@@ -152,6 +169,12 @@ export class MitmManager {
     const confDir = options.caDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "netvein-mitm-"));
     const portFile = path.join(confDir, "ctl.port");
     fs.rmSync(portFile, { force: true });
+    let captureFile: string | null = null;
+    if (options.captureDir) {
+      fs.mkdirSync(options.captureDir, { recursive: true });
+      captureFile = path.join(options.captureDir, captureStamp());
+      this.captureFile = captureFile;
+    }
 
     const args = ["--listen-host", "127.0.0.1", "--listen-port", String(port), "--set", `confdir=${confDir}`, "-s", addonPath(), "--quiet"];
     if (options.allowHosts?.length) {
@@ -159,7 +182,7 @@ export class MitmManager {
     }
 
     const proc = spawn(binary, args, {
-      env: { ...process.env, NETVEIN_CONFDIR: confDir, NETVEIN_CTL_PORT: "0", NETVEIN_PORTFILE: portFile, NETVEIN_VERSION: VERSION },
+      env: { ...process.env, NETVEIN_CONFDIR: confDir, NETVEIN_CTL_PORT: "0", NETVEIN_PORTFILE: portFile, NETVEIN_VERSION: VERSION, ...(captureFile ? { NETVEIN_CAPTURE: captureFile } : {}) },
       stdio: ["ignore", "pipe", "pipe"],
     });
     this.proc = proc;
@@ -184,7 +207,7 @@ export class MitmManager {
       const ctlPort = await this.waitForPortFile(portFile, 15000);
       await this.connectControl(ctlPort);
       // Bootstrap info before the handshake command: command() guards on running().
-      this.info = { proxyPort: port, confDir, spki: null, attachBrowser: options.attachBrowser ?? true };
+      this.info = { proxyPort: port, confDir, spki: null, attachBrowser: options.attachBrowser ?? true, captureFile };
       const stats = await this.command("stats");
       this.info.spki = (stats.spki as string | null) ?? null;
       return { proxyPort: port, spki: this.info.spki, confDir, alreadyRunning: false };

@@ -341,7 +341,7 @@ test("Traffic session shaping against a real daemon", { skip: mitmAvailable ? fa
       assert.ok(JSON.parse(lines[0]).summary.id);
       const har = (await session.trafficExport("har")) as { path: string };
       assert.ok(fs.existsSync(har.path));
-      assert.equal(JSON.parse(fs.readFileSync(har.path, "utf8")).log.creator.version, "0.5.0");
+      assert.match(JSON.parse(fs.readFileSync(har.path, "utf8")).log.creator.version, /^\d+\.\d+\.\d+$/);
     } finally {
       await session.mitm.stop();
       await target.close();
@@ -449,5 +449,40 @@ test("MitmManager lifecycle hardening", { skip: mitmAvailable ? false : "mitmdum
     assert.equal(info.port, port);
     await eventually(async () => { try { process.kill(info.pid, 0); return false; } catch { return true; } }, 8000);
     assert.equal(await portFreeCheck(port), true, "parent exit took the daemon with it");
+  });
+});
+
+test("Workspace auto-capture with a live daemon", { skip: mitmAvailable ? false : "mitmdump not installed" }, async (t) => {
+  await t.test("finished flows land in .netvein/capture and survive stop", async () => {
+    const { CdpSession } = await import("../src/cdp.js");
+    const project = await import("../src/project.js");
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "nv-cap-"));
+    const init = project.initProject(root);
+    const session = new CdpSession({ projectDir: init.dir });
+    const target = await startTarget();
+    try {
+      const started = await session.trafficStart({ port: await freePort() });
+      assert.ok(started.capture, "workspace implies capture by default");
+      await proxyRequest(session.mitm.endpoint()!.proxyPort, target.port, "/alpha");
+      const cap = await eventually(async () => {
+        const info = session.mitm.captureInfo();
+        return info && info.exists && info.bytes > 0 ? info : null;
+      });
+      await session.trafficStop();
+      const lines = fs.readFileSync(cap.file, "utf8").trim().split("\n");
+      assert.ok(lines.length >= 1);
+      const flow = JSON.parse(lines[lines.length - 1]);
+      assert.match(flow.summary.path, /\/alpha/);
+      assert.equal(flow.summary.status, 200);
+      const view = session.netveinProject() as { captures: Array<{ file: string }> };
+      assert.ok(view.captures.some((c) => c.file === path.basename(cap.file)), "status lists the capture file");
+    } finally {
+      await session.mitm.stop();
+      await target.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

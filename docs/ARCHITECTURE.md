@@ -162,6 +162,22 @@ daemon answers `traffic_status` as data, not as an error.
 
 ---
 
+### I. Project Workspace (.netvein)
+
+`src/project.ts` implements the per-project layer in the shape CodeGraph uses: a `.netvein/`
+directory discovered by walking up from the process working directory, an explicit override
+chain (`--project` flag > `NETVEIN_PROJECT` env > upward discovery), and shell parity for every
+entry point (`netvein-mcp init` / `netvein-mcp status` mirror the `netvein_init` /
+`netvein_project` tools). The workspace contributes three things: sanitized `config.json`
+defaults merged under flags and env, an auto-capture directory the traffic daemon appends to
+(one JSON line per finished flow; websocket flows get a frame-complete second line at close,
+last occurrence of an id wins), and a default destination for `traffic_export`. Creation is
+never destructive — existing files are left alone — and a malformed config degrades to
+"no workspace" with one stderr warning rather than bricking the session. A broken or crashed
+daemon no longer costs analysis history: the capture file survives the process that wrote it.
+
+---
+
 ## 3. Error Handling & Resilience
 - **Rejection Guards**: Captures `unhandledRejection` events from remote WebSocket disconnects without crashing the server process.
 - **Auto-Recovery**: If a tab closes or navigates away unexpectedly, the session resets internal buffers and cleanly reports target detachment.

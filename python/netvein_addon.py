@@ -88,6 +88,8 @@ class Netvein:
         self.server = None
         self.start = time.time()
         self.spki = self._spki()
+        self.capture_path = env("NETVEIN_CAPTURE", "")
+        self.capture_fh = None
 
     def _spki(self):
         try:
@@ -104,12 +106,19 @@ class Netvein:
     # ---- mitmproxy hooks -------------------------------------------------
     def response(self, flow):
         self._remember(flow)
+        self._capture(flow)
 
     def error(self, flow):
         self._remember(flow)
+        self._capture(flow)
 
     def websocket_message(self, flow):
         self._remember(flow)
+
+    def websocket_end(self, flow):
+        self._remember(flow)
+        # Frames are complete now: append a second, richer line (last wins per id).
+        self._capture(flow, force=True)
 
     async def request(self, flow):
         for bp in self.breakpoints:
@@ -152,6 +161,23 @@ class Netvein:
                 req.headers[k] = v
             if "body" in patch:
                 req.set_text(patch["body"])
+
+    def _capture(self, flow, force=False):
+        if not self.capture_path:
+            return
+        if not force and getattr(flow, "netvein_captured", False):
+            return
+        if self.capture_fh is None:
+            try:
+                self.capture_fh = open(self.capture_path, "a", buffering=1)
+            except Exception:
+                self.capture_path = ""  # never let disk trouble break capture service
+                return
+        try:
+            self.capture_fh.write(json.dumps(detail(flow)) + "\n")
+            flow.netvein_captured = True
+        except Exception:
+            pass
 
     def _remember(self, flow):
         if flow.id not in self.flows:
@@ -367,7 +393,8 @@ class Netvein:
     async def _cmd_stats(self, args):
         held = list(self.hold_events.keys())
         return {"running": True, "flows": len(self.flows), "held": held,
-                "breakpoints": len(self.breakpoints), "uptimeS": int(time.time() - self.start), "spki": self.spki}
+                "breakpoints": len(self.breakpoints), "uptimeS": int(time.time() - self.start), "spki": self.spki,
+                "capture": self.capture_path or None}
 
     async def _cmd_stop(self, args):
         asyncio.get_event_loop().call_later(0.1, lambda: os._exit(0))

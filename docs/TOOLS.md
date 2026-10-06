@@ -1,6 +1,6 @@
 # Tool Catalog & Reference Guide
 
-`netvein-mcp` exposes **112 tools** through the Model Context Protocol. All tools return standardized JSON-compatible responses and respect bounded buffer limits.
+`netvein-mcp` exposes **114 tools** through the Model Context Protocol. All tools return standardized JSON-compatible responses and respect bounded buffer limits.
 
 ---
 
@@ -203,7 +203,18 @@ by netvein afterwards route through the proxy automatically.
 
 ---
 
-## 13. Maintenance
+## 13. Project Workspace (.netvein)
+
+Per-project state, discovered by walking up from the working directory — the same pattern as CodeGraph's `.codegraph/`. With a workspace: `config.json` supplies cdp/traffic defaults, traffic auto-captures finished flows to `capture/flows-<utc>.jsonl`, and exports default into `capture/`.
+
+| Tool | Parameters | Description |
+|---|---|---|
+| `netvein_init` | `dir?`, `force?` | Create the `.netvein/` skeleton (config.json, capture/, notes/, README, .gitignore). Never destructive; CLI parity: `netvein-mcp init`. |
+| `netvein_project` | None | Workspace status: dir (null when absent), applied config, capture dir, newest capture artifacts. CLI parity: `netvein-mcp status`. |
+
+---
+
+## 14. Maintenance
 
 | Tool | Parameters | Description |
 |---|---|---|

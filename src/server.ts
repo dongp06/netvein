@@ -1599,6 +1599,32 @@ export function createServer(session: CdpSession): McpServer {
   );
 
   server.registerTool(
+    "netvein_project",
+    {
+      title: "Netvein project workspace status",
+      description:
+        "Report the discovered .netvein workspace (found by walking up from the working directory, like CodeGraph finds .codegraph): directory, applied config, capture dir, newest capture artifacts. dir=null when no workspace exists.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {},
+    },
+    guardedTool("ERR_NO_SESSION", () => Promise.resolve(session.netveinProject())),
+  );
+
+  server.registerTool(
+    "netvein_init",
+    {
+      title: "Initialize a .netvein workspace",
+      description:
+        "Create .netvein/ (config.json, capture/, notes/, README, .gitignore) under dir — same as the `netvein-mcp init` shell command, and the same per-project pattern as CodeGraph's .codegraph. Afterwards netvein picks up project config defaults, auto-captures traffic into capture/, and exports default to it. Never destructive; force only fills missing files.",
+      inputSchema: {
+        dir: z.string().optional().describe("Project root (default: server working directory)."),
+        force: z.boolean().default(false).describe("Proceed even if a workspace already exists (adds only missing files)."),
+      },
+    },
+    guardedTool("ERR_NO_SESSION", (args: { dir?: string; force?: boolean }) => Promise.resolve(session.netveinInit(args.dir, args.force))),
+  );
+
+  server.registerTool(
     "traffic_start",
     {
       title: "Start the traffic daemon",
@@ -1609,9 +1635,10 @@ export function createServer(session: CdpSession): McpServer {
         caDir: z.string().optional().describe("Reuse an existing mitmproxy confdir instead of a private temp one."),
         allowHosts: z.array(z.string()).optional().describe("Regex allow-list: only these hosts are intercepted; everything else tunnels."),
         attachBrowser: z.boolean().default(true).describe("Route netvein-launched browsers through the proxy."),
+        capture: z.boolean().optional().describe("Auto-append finished flows to .netvein/capture/ (default: on when a workspace exists)."),
       },
     },
-    guardedTool("ERR_MITM_UNAVAILABLE", (args: { port?: number; caDir?: string; allowHosts?: string[]; attachBrowser?: boolean }) =>
+    guardedTool("ERR_MITM_UNAVAILABLE", (args: { port?: number; caDir?: string; allowHosts?: string[]; attachBrowser?: boolean; capture?: boolean }) =>
       session.trafficStart(args),
     ),
   );

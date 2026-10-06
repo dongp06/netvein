@@ -12,6 +12,7 @@ export const ERROR_CODES = {
   ERR_MITM_LOST: "The traffic daemon died mid-operation.",
   ERR_MITM_FLOW_NOT_FOUND: "No flow matches that id in the daemon store.",
   ERR_MITM_BAD_PATTERN: "The breakpoint pattern is not a valid regex.",
+  ERR_PROJECT_EXISTS: "A .netvein workspace already exists at that path.",
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_CODES;
@@ -35,6 +36,7 @@ export const DEFAULT_SUGGESTIONS: Record<ErrorCode, string> = {
   ERR_MITM_LOST: "Call traffic_start again; flow history was lost with the daemon.",
   ERR_MITM_FLOW_NOT_FOUND: "List flows with traffic_flows and use a current id.",
   ERR_MITM_BAD_PATTERN: "Use a valid JS regex, for example .*api/login.*",
+  ERR_PROJECT_EXISTS: "Pass force to skip existing files, or point dir at a different path.",
 };
 
 export interface OkEnvelope<T> {

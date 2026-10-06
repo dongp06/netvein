@@ -642,10 +642,10 @@ test("Captcha Tools", async (t) => {
 });
 
 test("Tool Surface Contract", async (t) => {
-  await t.test("server exposes exactly 112 tools", () => {
+  await t.test("server exposes exactly 114 tools", () => {
     const server = createServer(new CdpSession());
     const tools = Object.keys((server as any)._registeredTools || {});
-    assert.equal(tools.length, 112, `Expected 112 tools, got ${tools.length}`);
+    assert.equal(tools.length, 114, `Expected 114 tools, got ${tools.length}`);
   });
 
   await t.test("every new tool is registered", () => {
@@ -675,6 +675,8 @@ test("Tool Surface Contract", async (t) => {
       "traffic_breakpoint_release",
       "traffic_replay",
       "traffic_export",
+      "netvein_init",
+      "netvein_project",
     ];
     for (const name of expected) {
       assert.ok(tools.includes(name), `Missing new tool: ${name}`);
@@ -1318,4 +1320,100 @@ test("Replay/export tools at the MCP boundary", async (t) => {
       assert.equal(payload.error_code, "ERR_MITM_NOT_RUNNING");
     });
   }
+});
+
+const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
+
+test("Netvein Project Workspace (.netvein)", async (t) => {
+  const project = await import("../src/project.js");
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+
+  await t.test("findProjectDir walks upward like codegraph discovery", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "nv-ws-"));
+    const deep = path.join(root, "a", "b", "c");
+    fs.mkdirSync(deep, { recursive: true });
+    assert.equal(project.findProjectDir(deep), null);
+    fs.mkdirSync(path.join(root, ".netvein"));
+    assert.equal(project.findProjectDir(deep), path.join(root, ".netvein"));
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test("initProject builds the skeleton and refuses without force", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "nv-ws-"));
+    const r = project.initProject(root);
+    assert.ok(r.created.includes("config.json"));
+    for (const rel of ["config.json", ".gitignore", "README.md"]) assert.ok(fs.existsSync(path.join(r.dir, rel)), rel);
+    assert.ok(fs.statSync(path.join(r.dir, "capture")).isDirectory());
+    assert.ok(fs.statSync(path.join(r.dir, "notes")).isDirectory());
+    fs.writeFileSync(path.join(r.dir, "config.json"), "{\"traffic\":{\"port\":9999}}");
+    assert.throws(() => project.initProject(root), (e) => e instanceof project.ProjectExistsError);
+    const again = project.initProject(root, true);
+    assert.deepEqual(again.created, []);
+    assert.match(fs.readFileSync(path.join(r.dir, "config.json"), "utf8"), /9999/, "force never overwrites");
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test("parseProjectConfig drops wrong-typed values, keeps good ones", () => {
+    const input = JSON.stringify({
+      cdp: { host: "1.2.3.4", port: "9222" },
+      traffic: { port: 8080, capture: "yes", attachBrowser: false, allowHosts: ["^api."] },
+    });
+    const cfg = project.parseProjectConfig(input);
+    assert.deepEqual(cfg, { cdp: { host: "1.2.3.4" }, traffic: { port: 8080, attachBrowser: false, allowHosts: ["^api."] } });
+    assert.throws(() => project.parseProjectConfig("[1,2]"));
+  });
+
+  await t.test("captureStamp + listCaptures newest-first", () => {
+    assert.match(project.captureStamp(new Date("2026-10-06T02:53:12.123Z")), /^flows-2026-10-06T02-53-12-123Z\.jsonl$/);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "nv-ws-"));
+    const r = project.initProject(root);
+    const ws = project.loadWorkspace(r.dir);
+    const cap = (name: string, ageMs: number) => {
+      const pth = path.join(ws.captureDir, name);
+      fs.writeFileSync(pth, "x");
+      const t = Date.now() - ageMs;
+      fs.utimesSync(pth, new Date(t), new Date(t));
+    };
+    cap("flows-old.jsonl", 60_000);
+    cap("flows-new.jsonl", 1_000);
+    cap("export-manual.har", 2_000);
+    cap("stray.txt", 0);
+    const list = project.listCaptures(ws);
+    assert.deepEqual(list.map((c) => c.file), ["flows-new.jsonl", "export-manual.har", "flows-old.jsonl"]);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test("workspace config feeds session defaults (traffic port)", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "nv-ws-"));
+    const wdir = path.join(root, ".netvein");
+    fs.mkdirSync(path.join(wdir, "capture"), { recursive: true });
+    fs.writeFileSync(path.join(wdir, "config.json"), '{"traffic":{"port":12345,"capture":false}}');
+    const session = new CdpSession({ projectDir: wdir });
+    assert.equal(session.workspace?.config.traffic?.port, 12345);
+    const view = session.netveinProject();
+    assert.equal(view.dir, wdir);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  await t.test("CLI parity: init and status subcommands (like codegraph init/status)", async () => {
+    const { spawnSync } = await import("node:child_process");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "nv-cli-"));
+    const cli = (args: string[]) => spawnSync("npx", ["tsx", "src/index.ts", ...args], { cwd: ROOT, encoding: "utf8" });
+    const r1 = cli(["init", root]);
+    assert.equal(r1.status, 0, r1.stderr);
+    assert.match(r1.stdout, /workspace: .*\.netvein/);
+    assert.ok(fs.existsSync(path.join(root, ".netvein", "config.json")));
+    const r2 = cli(["init", root]);
+    assert.equal(r2.status, 1);
+    assert.match(r2.stderr, /already exists/);
+    const r3 = cli(["status", root]);
+    assert.equal(r3.status, 0, r3.stderr);
+    assert.match(r3.stdout, /config:/);
+    const r4 = cli(["status", fs.mkdtempSync(path.join(os.tmpdir(), "nv-empty-"))]);
+    assert.equal(r4.status, 1);
+    assert.match(r4.stdout, /no \.netvein workspace/);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
 });

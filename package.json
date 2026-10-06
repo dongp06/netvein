@@ -1,6 +1,6 @@
 {
   "name": "netvein-mcp",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "An advanced Chrome CDP MCP server for web reverse engineering, dynamic analysis, and runtime instrumentation.",
   "type": "module",
   "bin": {
