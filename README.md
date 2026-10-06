@@ -1,3 +1,8 @@
+<div align="center">
+  <img src="assets/brand/icon.svg" width="96" alt="Netvein logo" />&nbsp;&nbsp;
+  <img src="assets/brand/wordmark.svg" width="360" alt="NETVEIN" />
+</div>
+
 # Netvein-MCP ⚡
 
 > **The reverse engineer's browser MCP. Break request signatures, take apart bot defenses, and dissect systems you do not own — from a single, token-bounded CDP session.**
