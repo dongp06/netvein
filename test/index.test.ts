@@ -17,6 +17,7 @@ import { compressAxTree, diffSnapshots, formatSemanticView } from "../src/pruner
 import { createServer } from "../src/server.js";
 import { activePatchIds, buildStealthScript, createSeededPrng, seedFromName } from "../src/stealth.js";
 import { checkForUpdate, classifyUpdate, compareVersions, isCheckDue, parseVersion } from "../src/updater.js";
+import { beautifyBody, buildCurl, diffReplay, filterFlows, formatFlowList, stripHeaders, type FlowDetail, type FlowSummary } from "../src/mitm/store.js";
 
 test("Server & Tool Registration", async (t) => {
   await t.test("Initializes server with all tools, resources, and prompts", () => {
@@ -1030,3 +1031,36 @@ test("Netvein Rename", async (t) => {
   });
 });
 
+
+const mk = (over: Partial<FlowSummary>): FlowSummary => ({
+  id: "f1", ts: "2026-10-06T00:00:00.000Z", method: "GET", host: "api.example.com",
+  path: "/v1/sign", status: 200, bytes: 512, durationMs: 42, held: false, expired: false,
+  scheme: "https", ...over,
+});
+
+test("Traffic Store", async (t) => {
+  await t.test("stripHeaders keeps the curated subset, case-insensitively", () => {
+    const out = stripHeaders(
+      { "Content-Type": "application/json", "User-Agent": "x", Cookie: "a=b", "X-Mitm-Proxy": "y" },
+      "request",
+    );
+    assert.deepEqual(out, { "content-type": "application/json", "user-agent": "x", cookie: "a=b" });
+  });
+
+  await t.test("filterFlows matches host/path/method/status/heldOnly/since", () => {
+    const flows = [mk({}), mk({ id: "f2", host: "other.dev", path: "/x" }), mk({ id: "f3", status: 404 }), mk({ id: "f4", held: true })];
+    assert.deepEqual(filterFlows(flows, { host: "api.example.com" }).map((f) => f.id).sort(), ["f1", "f3", "f4"]);
+    assert.deepEqual(filterFlows(flows, { pathContains: "/x" }).map((f) => f.id), ["f2"]);
+    assert.deepEqual(filterFlows(flows, { status: 404 }).map((f) => f.id), ["f3"]);
+    assert.deepEqual(filterFlows(flows, { heldOnly: true }).map((f) => f.id), ["f4"]);
+    assert.deepEqual(filterFlows(flows, { since: "2026-10-06T00:00:00.500Z" }), []);
+    assert.equal(filterFlows(flows, { limit: 2 }).length, 2);
+  });
+
+  await t.test("formatFlowList renders one compact line per flow, newest last", () => {
+    const text = formatFlowList([mk({}), mk({ id: "f2", method: "POST", status: null, held: true, expired: true })]);
+    assert.ok(text.includes("f1 GET api.example.com/v1/sign -> 200 512B 42ms"), text);
+    assert.ok(text.includes("f2 POST api.example.com/v1/sign -> - 512B 42ms [HELD expired]"), text);
+    assert.ok(text.startsWith("2 flows"));
+  });
+});
