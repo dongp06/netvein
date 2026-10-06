@@ -30,12 +30,16 @@ def iso(ts):
 def summary(flow):
     req = flow.request
     resp = getattr(flow, "flow_response", None) or flow.response
+    # pretty_host omits the port; non-default ports must ride along or curl/
+    # list targets the wrong endpoint.
+    default_port = 443 if req.scheme == "https" else 80
+    host = req.pretty_host if req.port == default_port else f"{req.pretty_host}:{req.port}"
     duration = 0
     if req.timestamp_end and req.timestamp_start:
         duration = int((req.timestamp_end - req.timestamp_start) * 1000)
     return {
         "id": flow.id, "ts": iso(req.timestamp_start), "method": req.method,
-        "host": req.pretty_host, "path": req.path,
+        "host": host, "path": req.path,
         "status": resp.status_code if resp else None,
         "bytes": len(resp.raw_content) if resp and resp.raw_content else 0,
         "durationMs": duration, "held": getattr(flow, "netvein_held", False),

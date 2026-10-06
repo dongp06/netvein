@@ -172,3 +172,27 @@ export function diffReplay(
     truncated,
   };
 }
+
+export type FlowPart = "request" | "response" | "both" | "ws";
+
+/** Shaping for traffic_flow: curated headers, beautified bodies, per-part view. */
+export function shapeFlowDetail(detail: FlowDetail, part: FlowPart, maxChars: number): Record<string, unknown> {
+  const out: Record<string, unknown> = { id: detail.summary.id, summary: detail.summary };
+  if (part === "request" || part === "both") {
+    out.request = {
+      headers: stripHeaders(detail.request.headers, "request"),
+      body: beautifyBody(detail.request.body, detail.request.headers["content-type"] ?? null, maxChars),
+    };
+  }
+  if (part === "response" || part === "both") {
+    out.response = detail.response
+      ? {
+          headers: stripHeaders(detail.response.headers, "response"),
+          body: beautifyBody(detail.response.body, detail.response.headers["content-type"] ?? null, maxChars),
+          status: detail.response.status,
+        }
+      : null;
+  }
+  if (part === "ws") out.wsFrames = detail.wsFrames ?? [];
+  return out;
+}

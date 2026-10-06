@@ -19,6 +19,7 @@ import { activePatchIds, buildStealthScript, createSeededPrng, seedFromName } fr
 import { checkForUpdate, classifyUpdate, compareVersions, isCheckDue, parseVersion } from "../src/updater.js";
 import { beautifyBody, buildCurl, diffReplay, filterFlows, formatFlowList, stripHeaders, type FlowDetail, type FlowSummary } from "../src/mitm/store.js";
 import { buildProxyArgs, MitmError } from "../src/mitm/manager.js";
+import { shapeFlowDetail, type FlowDetail } from "../src/mitm/store.js";
 import { envelopeFromThrow } from "../src/errors.js";
 
 test("Server & Tool Registration", async (t) => {
@@ -641,10 +642,10 @@ test("Captcha Tools", async (t) => {
 });
 
 test("Tool Surface Contract", async (t) => {
-  await t.test("server exposes exactly 105 tools", () => {
+  await t.test("server exposes exactly 108 tools", () => {
     const server = createServer(new CdpSession());
     const tools = Object.keys((server as any)._registeredTools || {});
-    assert.equal(tools.length, 105, `Expected 105 tools, got ${tools.length}`);
+    assert.equal(tools.length, 108, `Expected 108 tools, got ${tools.length}`);
   });
 
   await t.test("every new tool is registered", () => {
@@ -667,6 +668,9 @@ test("Tool Surface Contract", async (t) => {
       "traffic_start",
       "traffic_stop",
       "traffic_status",
+      "traffic_flows",
+      "traffic_flow",
+      "traffic_curl",
     ];
     for (const name of expected) {
       assert.ok(tools.includes(name), `Missing new tool: ${name}`);
@@ -1206,4 +1210,62 @@ test("Traffic tools at the MCP boundary", async (t) => {
       squat.close();
     }
   });
+});
+
+test("shapeFlowDetail shaping", async (t) => {
+  const fixture: FlowDetail = {
+    summary: { id: "f9", ts: "2026-10-06T00:00:00.000Z", method: "POST", host: "api.example.com", path: "/v1/sign", status: 200, bytes: 64, durationMs: 12, held: false, expired: false, scheme: "https" },
+    request: { headers: { "content-type": "application/json", cookie: "a=b", "x-noise": "z" }, body: '{"q":"hi"}' },
+    response: { headers: { "content-type": "application/json", server: "nginx", "x-junk": "y" }, body: '{"sig":"abc"}', status: 200 },
+    wsFrames: [{ dir: "up", ts: "2026-10-06T00:00:01Z", payload: "ping" }],
+  };
+
+  await t.test("both renders curated headers and pretty JSON on each side", () => {
+    const out = shapeFlowDetail(fixture, "both", 5000);
+    const req = out.request as { headers: Record<string, string>; body: string };
+    const res = out.response as { headers: Record<string, string>; body: string; status: number };
+    assert.deepEqual(req.headers, { "content-type": "application/json", cookie: "a=b" });
+    assert.match(req.body, /"q": "hi"/);
+    assert.deepEqual(res.headers, { "content-type": "application/json", server: "nginx" });
+    assert.equal(res.status, 200);
+    assert.equal(out.id, "f9");
+  });
+
+  await t.test("part narrows the payload", () => {
+    assert.equal("response" in shapeFlowDetail(fixture, "request", 5000), false);
+    assert.equal("request" in shapeFlowDetail(fixture, "response", 5000), false);
+    const ws = shapeFlowDetail(fixture, "ws", 5000);
+    assert.deepEqual((ws.wsFrames as unknown[]).length, 1);
+    assert.equal("request" in ws, false);
+  });
+
+  await t.test("missing response renders null, not crash", () => {
+    const inflight: FlowDetail = { ...fixture, response: null };
+    const out = shapeFlowDetail(inflight, "both", 5000);
+    assert.equal(out.response, null);
+  });
+
+  await t.test("body truncation budget respected", () => {
+    const big: FlowDetail = { ...fixture, request: { headers: { "content-type": "text/plain" }, body: "x".repeat(100) } };
+    const req = shapeFlowDetail(big, "request", 30).request as { body: string };
+    assert.ok(req.body.length < 50 && req.body.endsWith("…[truncated]"));
+  });
+});
+
+test("Traffic list/flow/curl tools at the MCP boundary", async (t) => {
+  const call = async (name: string, args: Record<string, unknown> = {}): Promise<{ payload: Record<string, unknown>; isError?: boolean }> => {
+    const server = createServer(new CdpSession());
+    const entry = (server as any)._registeredTools[name];
+    const result = await entry.handler(args, {} as never);
+    return { payload: JSON.parse(result.content[0].text), isError: result.isError };
+  };
+
+  for (const [name, args] of [["traffic_flows", {}], ["traffic_flow", { id: "f1" }], ["traffic_curl", { id: "f1" }]] as const) {
+    await t.test(`${name} on a stopped daemon returns ERR_MITM_NOT_RUNNING`, async () => {
+      const { payload, isError } = await call(name, { ...args });
+      assert.ok(isError);
+      assert.equal(payload.error_code, "ERR_MITM_NOT_RUNNING");
+      assert.equal(typeof payload.suggestion, "string");
+    });
+  }
 });

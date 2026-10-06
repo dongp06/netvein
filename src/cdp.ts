@@ -2,6 +2,7 @@ import CDP from "chrome-remote-interface";
 import { launchBrowser, type LaunchOptions, type LaunchResult } from "./launcher.js";
 import { ToolError, ok, toEnvelope, type Envelope } from "./errors.js";
 import { MitmError, MitmManager, buildProxyArgs } from "./mitm/manager.js";
+import { buildCurl, formatFlowList, shapeFlowDetail, type FlowFilters, type FlowPart, type FlowSummary } from "./mitm/store.js";
 import { activePatchIds, buildStealthScript, seedFromName, type StealthProfile } from "./stealth.js";
 import { compressAxTree, diffSnapshots, formatSemanticView, type SemanticSnapshot } from "./pruner.js";
 import {
@@ -691,6 +692,26 @@ export class CdpSession {
     if (!this.mitm.running()) throw new MitmError("ERR_MITM_NOT_RUNNING", "The traffic daemon is not running.");
     await this.mitm.stop();
     return { stopped: true };
+  }
+
+  async trafficFlows(filters: FlowFilters & { full?: boolean }): Promise<Record<string, unknown>> {
+    const { full, ...wire } = filters;
+    const reply = await this.mitm.command("list", wire);
+    const flows = (reply.flows as FlowSummary[]) ?? [];
+    const heldIds = new Set(await this.mitm.held());
+    for (const flow of flows) if (heldIds.has(flow.id)) flow.held = true;
+    if (full) return { count: flows.length, flows };
+    return { count: flows.length, list: formatFlowList(flows) };
+  }
+
+  async trafficFlow(id: string, part: FlowPart, maxChars: number): Promise<Record<string, unknown>> {
+    const reply = await this.mitm.command("get", { flowId: id });
+    return shapeFlowDetail(reply.detail as import("./mitm/store.js").FlowDetail, part, maxChars);
+  }
+
+  async trafficCurl(id: string): Promise<Record<string, unknown>> {
+    const reply = await this.mitm.command("get", { flowId: id });
+    return { id, curl: buildCurl(reply.detail as import("./mitm/store.js").FlowDetail) };
   }
 
   async trafficStatus(): Promise<Record<string, unknown>> {

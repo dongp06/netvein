@@ -1655,6 +1655,61 @@ export function createServer(session: CdpSession): McpServer {
     ),
   );
 
+  server.registerTool(
+    "traffic_flows",
+    {
+      title: "List captured flows",
+      description:
+        "Filter the daemon's flow ring: host substring, path substring, method, status, held-only, since (ISO), limit (<=500, newest kept). Default view is one compact line per flow, newest last; full=true returns structured summaries.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        host: z.string().optional().describe("Substring match on the request host."),
+        pathContains: z.string().optional().describe("Substring match on the request path."),
+        method: z.string().optional().describe("Exact HTTP method, e.g. POST."),
+        status: z.number().int().optional().describe("Exact response status code."),
+        since: z.string().optional().describe("ISO timestamp; drop flows older than this."),
+        heldOnly: z.boolean().optional().describe("Only flows currently held at a breakpoint."),
+        limit: z.number().int().min(1).max(500).default(50).describe("Maximum flows returned (newest kept)."),
+        full: z.boolean().default(false).describe("Return structured summaries instead of the compact list."),
+      },
+    },
+    guardedTool("ERR_MITM_NOT_RUNNING", (args: { host?: string; pathContains?: string; method?: string; status?: number; since?: string; heldOnly?: boolean; limit?: number; full?: boolean }) =>
+      session.trafficFlows(args),
+    ),
+  );
+
+  server.registerTool(
+    "traffic_flow",
+    {
+      title: "Inspect one captured flow",
+      description:
+        "Curated headers and beautified body for a single flow id (from traffic_flows). part selects request / response / both / ws; bodies truncate at maxChars.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        id: z.string().min(1).describe("Flow id as listed by traffic_flows."),
+        part: z.enum(["request", "response", "both", "ws"]).default("both").describe("Which half of the exchange to render."),
+        maxChars: z.number().int().min(1).default(20000).describe("Body truncation budget."),
+      },
+    },
+    guardedTool("ERR_MITM_NOT_RUNNING", (args: { id: string; part: "request" | "response" | "both" | "ws"; maxChars: number }) =>
+      session.trafficFlow(args.id, args.part, args.maxChars),
+    ),
+  );
+
+  server.registerTool(
+    "traffic_curl",
+    {
+      title: "Reproduce a flow as curl",
+      description:
+        "Ready-to-run curl command reconstructed from a captured flow (curated headers; shell-quoted). Run it outside the browser to replay the exact request shape.",
+      annotations: { readOnlyHint: true },
+      inputSchema: {
+        id: z.string().min(1).describe("Flow id as listed by traffic_flows."),
+      },
+    },
+    guardedTool("ERR_MITM_NOT_RUNNING", (args: { id: string }) => session.trafficCurl(args.id)),
+  );
+
   return server;
 }
 

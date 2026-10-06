@@ -259,3 +259,29 @@ test("MitmManager daemon integration", { skip: mitmAvailable ? false : "mitmdump
     assert.equal(manager.state(), "dead");
   });
 });
+
+test("Traffic session shaping against a real daemon", { skip: mitmAvailable ? false : "mitmdump not installed" }, async (t) => {
+  await t.test("trafficFlows/trafficFlow/trafficCurl through CdpSession", async () => {
+    const { CdpSession } = await import("../src/cdp.js");
+    const session = new CdpSession();
+    const target = await startTarget();
+    try {
+      await session.mitm.start({ port: await freePort() });
+      await proxyRequest(session.mitm.endpoint()!.proxyPort, target.port, "/alpha");
+      const listed = await eventually(async () => {
+        const view = (await session.trafficFlows({})) as { count: number; list: string };
+        return view.count >= 1 ? view : null;
+      });
+      assert.match(listed.list, /GET 127.0.0.1.*\/alpha -> 200/);
+      const full = (await session.trafficFlows({ full: true })) as { flows: Array<{ id: string; path: string }> };
+      const id = full.flows[0].id;
+      const detail = (await session.trafficFlow(id, "both", 5000)) as { request: { headers: Record<string, string> }; response: { status: number } };
+      assert.equal(detail.response.status, 200);
+      const curl = (await session.trafficCurl(id)) as { curl: string };
+      assert.match(curl.curl, /^curl -X GET 'http:\/\/127\.0\.0\.1:\d+\/alpha'/);
+    } finally {
+      await session.mitm.stop();
+      await target.close();
+    }
+  });
+});
