@@ -50,7 +50,32 @@ Follow [@dongp06](https://github.com/dongp06) on GitHub for updates.
 
 ### 1. Install the CLI
 
-**No Node.js required** — one command grabs the right build for your OS:
+#### Option A: Install via npm (Recommended)
+
+Install globally using your favorite Node package manager:
+
+```bash
+# npm
+npm install -g netvein-mcp
+
+# pnpm
+pnpm add -g netvein-mcp
+
+# yarn
+yarn global add netvein-mcp
+
+# bun
+bun add -g netvein-mcp
+```
+
+> **Zero-install option:** You can also run commands directly with `npx` without installing globally:
+> ```bash
+> npx netvein-mcp install
+> ```
+
+#### Option B: Standalone Script (No Node.js required)
+
+If you don't have Node.js installed, use our standalone installer:
 
 ```bash
 # macOS / Linux
@@ -60,26 +85,19 @@ curl -fsSL https://raw.githubusercontent.com/dongp06/netvein-mcp/main/install.sh
 irm https://raw.githubusercontent.com/dongp06/netvein-mcp/main/install.ps1 | iex
 ```
 
-<details>
-<summary><b>Already have Node? Use npm instead (works on any version)</b></summary>
-
-```bash
-npm i -g netvein-mcp
-```
-
-<sub>The installer puts `netvein` and `netvein-mcp` on your PATH — open a new terminal before the next step so the command resolves cleanly.</sub>
-
-</details>
+---
 
 ### 2. Wire up your agent(s)
 
-In a **new terminal**, run the installer to connect NetVein to the agents you use:
+In a **new terminal**, run the installer to automatically connect NetVein to the AI coding assistants you use:
 
 ```bash
 netvein install
 ```
 
-<sub>Detects and auto-configures Claude Code, Cursor, Codex CLI, OpenCode, Hermes Agent, Gemini CLI, and Antigravity IDE — wiring the NetVein MCP server into each. **This is the step that connects NetVein to your agent;** installing the CLI in step 1 does not do it on its own. NetVein boots Chrome, Edge, or Brave automatically on port `9222` upon your first tool call. (Shortcut: `npx netvein-mcp install` downloads and runs this in one go.)</sub>
+*(Or run without installing globally: `npx netvein-mcp install`)*
+
+<sub>Detects and auto-configures **Claude Code**, **Cursor**, **Codex CLI**, **OpenCode**, **Hermes Agent**, **Gemini CLI**, and **Antigravity IDE** — wiring the NetVein MCP server into each. **This is the step that connects NetVein to your agent;** installing the CLI in step 1 does not do it on its own. NetVein boots Chrome, Edge, or Brave automatically on port `9222` upon your first tool call.</sub>
 
 ### 3. Initialize each project (Optional)
 
@@ -88,7 +106,7 @@ cd your-project
 netvein init
 ```
 
-<sub>Like CodeGraph's `.codegraph/`, `netvein init` creates a local `.netvein/` directory (`config.json`, `captures/`, `notes/`). When active, finished network flows are automatically persisted to disk and project-level configs cascade seamlessly into your sessions.</sub>
+<sub>`netvein init` creates a local `.netvein/` directory (`config.json`, `captures/`, `notes/`). When active, finished network flows are automatically persisted to disk and project-level configs cascade seamlessly into your sessions.</sub>
 
 ### Uninstall
 
@@ -96,6 +114,11 @@ Changed your mind? One command removes NetVein from every agent it configured **
 
 ```bash
 netvein uninstall
+```
+
+If installed globally via npm:
+```bash
+npm uninstall -g netvein-mcp
 ```
 
 Pass `--keep-cli` to remove only the agent configurations and keep the CLI installed.
@@ -449,7 +472,7 @@ Tools are organized by reverse engineering domain. Each tool provides rich argum
 
 ## Project Workspace (`.netvein/`)
 
-NetVein adopts the **CodeGraph workspace paradigm**. When working within a project, NetVein walks upward from the current working directory to discover a `.netvein/` folder.
+When working within a project, NetVein walks upward from the current working directory to discover a `.netvein/` folder.
 
 ### What the Workspace Enables
 
@@ -474,7 +497,9 @@ NetVein adopts the **CodeGraph workspace paradigm**. When working within a proje
 
 ## Supported AI Assistants & Configuration
 
-While `netvein install` sets up your environment automatically, you can also manually register the MCP server:
+While `netvein install` sets up your environment automatically, you can also manually register the MCP server in your agent's config file.
+
+> **Tip:** You can either point to the installed `netvein` CLI binary (`command: "netvein"`) or use `npx` directly without global install (`command: "npx"`, `args: ["-y", "netvein-mcp", "serve", "--mcp"]`).
 
 ### Claude Code (`~/.claude.json`)
 

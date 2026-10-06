@@ -164,7 +164,7 @@ daemon answers `traffic_status` as data, not as an error.
 
 ### I. Project Workspace (.netvein)
 
-`src/project.ts` implements the per-project layer in the shape CodeGraph uses: a `.netvein/`
+`src/project.ts` implements the per-project layer: a `.netvein/`
 directory discovered by walking up from the process working directory, an explicit override
 chain (`--project` flag > `NETVEIN_PROJECT` env > upward discovery), and shell parity for every
 entry point (`netvein-mcp init` / `netvein-mcp status` mirror the `netvein_init` /

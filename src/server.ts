@@ -1603,7 +1603,7 @@ export function createServer(session: CdpSession): McpServer {
     {
       title: "Netvein project workspace status",
       description:
-        "Report the discovered .netvein workspace (found by walking up from the working directory, like CodeGraph finds .codegraph): directory, applied config, capture dir, newest capture artifacts. dir=null when no workspace exists.",
+        "Report the discovered .netvein workspace (found by walking up from the working directory): directory, applied config, capture dir, newest capture artifacts. dir=null when no workspace exists.",
       annotations: { readOnlyHint: true },
       inputSchema: {},
     },
@@ -1615,7 +1615,7 @@ export function createServer(session: CdpSession): McpServer {
     {
       title: "Initialize a .netvein workspace",
       description:
-        "Create .netvein/ (config.json, capture/, notes/, README, .gitignore) under dir — same as the `netvein-mcp init` shell command, and the same per-project pattern as CodeGraph's .codegraph. Afterwards netvein picks up project config defaults, auto-captures traffic into capture/, and exports default to it. Never destructive; force only fills missing files.",
+        "Create .netvein/ (config.json, capture/, notes/, README, .gitignore) under dir — same as the `netvein-mcp init` shell command. Afterwards netvein picks up project config defaults, auto-captures traffic into capture/, and exports default to it. Never destructive; force only fills missing files.",
       inputSchema: {
         dir: z.string().optional().describe("Project root (default: server working directory)."),
         force: z.boolean().default(false).describe("Proceed even if a workspace already exists (adds only missing files)."),

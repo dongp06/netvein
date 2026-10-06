@@ -1,12 +1,12 @@
 {
   "name": "netvein-mcp",
   "version": "0.6.0",
-  "description": "An advanced Chrome CDP MCP server for web reverse engineering, dynamic analysis, and runtime instrumentation.",
+  "description": "Local-first Chrome CDP reverse engineering & wire-level traffic MCP server, for Claude Code, Cursor, Codex, OpenCode, Gemini, AntiGravity, and Hermes Agent — zero DOM bloat, stealth bot bypass, 100% local",
   "type": "module",
   "bin": {
-    "netvein": "./dist/index.js",
-    "netvein-mcp": "./dist/index.js",
-    "reverse-engineering-mcp": "./dist/index.js"
+    "netvein": "dist/index.js",
+    "netvein-mcp": "dist/index.js",
+    "reverse-engineering-mcp": "dist/index.js"
   },
   "files": [
     "dist",
@@ -39,6 +39,17 @@
   ],
   "license": "MIT",
   "author": "dongp06",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dongp06/netvein-mcp.git"
+  },
+  "homepage": "https://github.com/dongp06/netvein-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/dongp06/netvein-mcp/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",
     "acorn": "^8.18.0",

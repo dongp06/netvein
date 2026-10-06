@@ -37,7 +37,7 @@ export class ProjectExistsError extends Error {
   }
 }
 
-/** Walk up from startPath looking for a `.netvein` directory (codegraph-style discovery). */
+/** Walk up from startPath looking for a `.netvein` directory (workspace discovery). */
 export function findProjectDir(startPath: string): string | null {
   let current = path.resolve(startPath);
   for (;;) {
@@ -124,9 +124,8 @@ notes/
 `;
 
 const README_TEMPLATE = `# .netvein — netvein-mcp project workspace
-
-Discovered by walking up from the process working directory, like CodeGraph's
-\`.codegraph/\`. When present, netvein-mcp:
+ 
+Discovered by walking up from the process working directory. When present, netvein-mcp:
 
 - applies \`config.json\` (cdp + traffic defaults) after CLI flags and
   \`NETVEIN_*\` env vars but before built-in defaults;

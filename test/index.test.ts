@@ -996,8 +996,8 @@ test("Netvein Rename", async (t) => {
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
     assert.equal(pkg.name, "netvein-mcp");
     assert.match(pkg.version, /^\d+\.\d+\.\d+$/);
-    assert.equal(pkg.bin["netvein-mcp"], "./dist/index.js");
-    assert.equal(pkg.bin["reverse-engineering-mcp"], "./dist/index.js");
+    assert.match(pkg.bin["netvein-mcp"], /(^\.\/)?dist\/index\.js$/);
+    assert.match(pkg.bin["reverse-engineering-mcp"], /(^\.\/)?dist\/index\.js$/);
   });
 
   await t.test("single version source: VERSION matches package.json", async () => {
@@ -1340,7 +1340,7 @@ test("Netvein Project Workspace (.netvein)", async (t) => {
   const os = await import("node:os");
   const path = await import("node:path");
 
-  await t.test("findProjectDir walks upward like codegraph discovery", () => {
+  await t.test("findProjectDir walks upward for workspace discovery", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "nv-ws-"));
     const deep = path.join(root, "a", "b", "c");
     fs.mkdirSync(deep, { recursive: true });
@@ -1407,7 +1407,7 @@ test("Netvein Project Workspace (.netvein)", async (t) => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  await t.test("CLI parity: init and status subcommands (like codegraph init/status)", async () => {
+  await t.test("CLI parity: init and status subcommands", async () => {
     const { spawnSync } = await import("node:child_process");
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "nv-cli-"));
     const cli = (args: string[]) => spawnSync(process.execPath, ["--import", "tsx", "src/index.ts", ...args], { cwd: ROOT, encoding: "utf8" });
@@ -1427,7 +1427,7 @@ test("Netvein Project Workspace (.netvein)", async (t) => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  await t.test("CLI parity: install and uninstall subcommands (like codegraph install/uninstall)", async () => {
+  await t.test("CLI parity: install and uninstall subcommands", async () => {
     const { spawnSync } = await import("node:child_process");
     const cli = (args: string[]) => spawnSync(process.execPath, ["--import", "tsx", "src/index.ts", ...args], { cwd: ROOT, encoding: "utf8" });
     const r1 = cli(["install", "--target", "none"]);

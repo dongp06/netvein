@@ -205,7 +205,7 @@ by netvein afterwards route through the proxy automatically.
 
 ## 13. Project Workspace (.netvein)
 
-Per-project state, discovered by walking up from the working directory — the same pattern as CodeGraph's `.codegraph/`. With a workspace: `config.json` supplies cdp/traffic defaults, traffic auto-captures finished flows to `capture/flows-<utc>.jsonl`, and exports default into `capture/`.
+Per-project state, discovered by walking up from the working directory. With a workspace: `config.json` supplies cdp/traffic defaults, traffic auto-captures finished flows to `capture/flows-<utc>.jsonl`, and exports default into `capture/`.
 
 | Tool | Parameters | Description |
 |---|---|---|
