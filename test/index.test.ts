@@ -262,6 +262,20 @@ test("Structured Error Envelope", async (t) => {
     assert.equal(envelope.error_code, "ERR_PROXY_UNREACHABLE");
   });
 
+  await t.test("traffic error codes are registered with suggestions", () => {
+    for (const code of [
+      "ERR_MITM_UNAVAILABLE",
+      "ERR_MITM_PORT_BUSY",
+      "ERR_MITM_NOT_RUNNING",
+      "ERR_MITM_LOST",
+      "ERR_MITM_FLOW_NOT_FOUND",
+      "ERR_MITM_BAD_PATTERN",
+    ] as const) {
+      assert.ok(code in ERROR_CODES, `missing code ${code}`);
+      assert.ok(code in DEFAULT_SUGGESTIONS, `missing suggestion ${code}`);
+    }
+  });
+
   await t.test("every registry entry has a non-empty description", () => {
     for (const [code, description] of Object.entries(ERROR_CODES)) {
       assert.ok(description.length > 0, `Empty description for ${code}`);

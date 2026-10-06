@@ -6,6 +6,12 @@ export const ERROR_CODES = {
   ERR_STEALTH_PATCH_FAILED: "A stealth patch failed to install.",
   ERR_AX_TREE_UNAVAILABLE: "The accessibility tree is unavailable on this page.",
   ERR_CAPTCHA_PROVIDER_DISABLED: "No captcha provider is registered.",
+  ERR_MITM_UNAVAILABLE: "mitmdump was not found on PATH.",
+  ERR_MITM_PORT_BUSY: "The requested proxy port is already in use.",
+  ERR_MITM_NOT_RUNNING: "The traffic daemon is not running.",
+  ERR_MITM_LOST: "The traffic daemon died mid-operation.",
+  ERR_MITM_FLOW_NOT_FOUND: "No flow matches that id in the daemon store.",
+  ERR_MITM_BAD_PATTERN: "The breakpoint pattern is not a valid regex.",
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_CODES;
@@ -23,6 +29,12 @@ export const DEFAULT_SUGGESTIONS: Record<ErrorCode, string> = {
   ERR_STEALTH_PATCH_FAILED: "Confirm a tab is attached with browser_attach, then retry stealth_enable.",
   ERR_AX_TREE_UNAVAILABLE: "Navigate to a real page first; the tree is unavailable on about:blank and PDF viewers.",
   ERR_CAPTCHA_PROVIDER_DISABLED: "Call captcha_provider_hook with a provider and key, or rely on captcha_detect alone.",
+  ERR_MITM_UNAVAILABLE: "Install mitmproxy first: pipx install mitmproxy.",
+  ERR_MITM_PORT_BUSY: "Pass a different port to traffic_start.",
+  ERR_MITM_NOT_RUNNING: "Call traffic_start before using traffic tools.",
+  ERR_MITM_LOST: "Call traffic_start again; flow history was lost with the daemon.",
+  ERR_MITM_FLOW_NOT_FOUND: "List flows with traffic_flows and use a current id.",
+  ERR_MITM_BAD_PATTERN: "Use a valid JS regex, for example .*api/login.*",
 };
 
 export interface OkEnvelope<T> {
