@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NetVein — Autonomous Web Reverse Engineering & Wire-Level Traffic Daemon for AI Agents</title>
   <meta name="description" content="Local-first Chrome CDP reverse engineering & wire-level traffic MCP server for Claude Code, Cursor, Codex, OpenCode, Gemini, AntiGravity, and Hermes Agent.">
-  <meta property="og:title" content="NetVein — Autonomous Web Reverse Engineering MCP">
+  <meta property="og:title" content="NetVein — The Reverse Engineer's Browser MCP">
   <meta property="og:description" content="123 specialized tools: single-session CDP, in-flight packet interception, AST crypto hooks, stealth bot bypass, zero DOM bloat.">
   <meta property="og:image" content="assets/brand/og.png">
   <meta property="og:url" content="https://dongp06.github.io/netvein/">
@@ -14,26 +14,29 @@
   <link rel="icon" href="assets/brand/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&family=Outfit:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg-base: #060911;
-      --bg-surface: #0c1220;
-      --bg-card: rgba(16, 24, 40, 0.7);
-      --bg-card-hover: rgba(22, 33, 56, 0.85);
-      --border-subtle: rgba(255, 255, 255, 0.08);
-      --border-accent: rgba(6, 182, 212, 0.3);
-      --accent-cyan: #06b6d4;
-      --accent-cyan-glow: rgba(6, 182, 212, 0.4);
-      --accent-blue: #3b82f6;
-      --accent-indigo: #6366f1;
-      --accent-emerald: #10b981;
-      --text-main: #f1f5f9;
+      --bg: #07090e;
+      --bg-subtle: #0d111a;
+      --bg-surface: #121722;
+      --bg-surface-elevated: #171d2b;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-muted: rgba(255, 255, 255, 0.04);
+      --border-accent: rgba(56, 189, 248, 0.3);
+      --border-accent-glow: rgba(56, 189, 248, 0.15);
+      --text: #f8fafc;
       --text-muted: #94a3b8;
       --text-dim: #64748b;
-      --font-display: 'Outfit', sans-serif;
-      --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      --font-mono: 'JetBrains Mono', monospace;
+      --cyan: #38bdf8;
+      --cyan-dim: rgba(56, 189, 248, 0.12);
+      --indigo: #818cf8;
+      --purple: #c084fc;
+      --emerald: #10b981;
+      --emerald-dim: rgba(16, 185, 129, 0.12);
+      --amber: #f59e0b;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
     }
 
     * {
@@ -43,16 +46,13 @@
     }
 
     body {
-      background-color: var(--bg-base);
-      color: var(--text-main);
-      font-family: var(--font-body);
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
       line-height: 1.6;
       overflow-x: hidden;
-      background-image: 
-        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(6, 182, 212, 0.15), transparent 70%),
-        radial-gradient(ellipse 60% 40% at 90% 20%, rgba(99, 102, 241, 0.1), transparent 60%),
-        radial-gradient(ellipse 50% 30% at 10% 70%, rgba(16, 185, 129, 0.08), transparent 60%);
-      background-attachment: fixed;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
     a {
@@ -60,52 +60,67 @@
       text-decoration: none;
     }
 
-    /* Top Grid Pattern Overlay */
-    .grid-bg {
+    /* Subtle background grid */
+    .bg-grid {
       position: fixed;
       inset: 0;
-      background-image: linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-                        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-      background-size: 40px 40px;
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      background-size: 32px 32px;
+      mask-image: radial-gradient(ellipse 70% 60% at 50% 10%, black 40%, transparent 90%);
+      -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 10%, black 40%, transparent 90%);
       pointer-events: none;
       z-index: 0;
     }
 
-    /* Container */
+    .ambient-glow {
+      position: fixed;
+      top: -120px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 400px;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.12) 0%, rgba(129, 140, 248, 0.06) 40%, transparent 70%);
+      filter: blur(80px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
     .container {
-      max-width: 1240px;
+      max-width: 1200px;
       margin: 0 auto;
       padding: 0 24px;
       position: relative;
       z-index: 1;
     }
 
-    /* Header Nav */
+    /* Top Navigation */
     header {
       position: sticky;
       top: 0;
       z-index: 100;
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      background: rgba(6, 9, 17, 0.75);
-      border-bottom: 1px solid var(--border-subtle);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      background: rgba(7, 9, 14, 0.85);
+      border-bottom: 1px solid var(--border);
     }
 
     .nav-inner {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      height: 72px;
+      height: 64px;
     }
 
-    .brand-group {
+    .brand-link {
       display: flex;
       align-items: center;
       gap: 12px;
     }
 
-    .brand-logo {
-      height: 34px;
+    .brand-wordmark {
+      height: 26px;
       width: auto;
       display: block;
     }
@@ -113,545 +128,725 @@
     .nav-links {
       display: flex;
       align-items: center;
-      gap: 32px;
-      font-size: 14px;
+      gap: 28px;
+      font-size: 13px;
       font-weight: 500;
       color: var(--text-muted);
     }
 
+    .nav-links a {
+      transition: color 0.15s;
+    }
+
     .nav-links a:hover {
-      color: var(--text-main);
-      transition: color 0.2s;
+      color: var(--text);
     }
 
     .nav-actions {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
     }
 
     .btn {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
-      padding: 10px 18px;
-      border-radius: 10px;
+      padding: 8px 16px;
+      border-radius: 8px;
       cursor: pointer;
-      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       border: 1px solid transparent;
+      user-select: none;
     }
 
     .btn-primary {
-      background: linear-gradient(135deg, #06b6d4, #2563eb);
-      color: #ffffff;
-      box-shadow: 0 4px 20px rgba(6, 182, 212, 0.35);
+      background: #f8fafc;
+      color: #07090e;
+      border-color: #f8fafc;
     }
 
     .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 28px rgba(6, 182, 212, 0.55);
+      background: #e2e8f0;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 16px rgba(255, 255, 255, 0.15);
     }
 
     .btn-secondary {
-      background: rgba(255, 255, 255, 0.05);
-      border-color: var(--border-subtle);
-      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.04);
+      border-color: var(--border);
+      color: var(--text);
     }
 
     .btn-secondary:hover {
-      background: rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.08);
       border-color: rgba(255, 255, 255, 0.2);
-      transform: translateY(-2px);
     }
 
     /* Hero Section */
     .hero {
-      padding: 90px 0 60px;
+      padding: 84px 0 54px;
       text-align: center;
     }
 
-    .badge-pill {
+    .release-tag {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 6px 16px;
+      padding: 4px 12px;
       border-radius: 9999px;
-      background: rgba(6, 182, 212, 0.08);
-      border: 1px solid rgba(6, 182, 212, 0.25);
-      color: #38bdf8;
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: 0.02em;
+      background: rgba(56, 189, 248, 0.08);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      color: var(--cyan);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 500;
       margin-bottom: 24px;
-      box-shadow: 0 0 20px rgba(6, 182, 212, 0.15);
     }
 
-    .badge-pill .pulse-dot {
-      width: 7px;
-      height: 7px;
+    .pulse-dot {
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
-      background: #10b981;
-      box-shadow: 0 0 10px #10b981;
-      animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.4; transform: scale(0.85); }
+      background: var(--emerald);
+      box-shadow: 0 0 8px var(--emerald);
     }
 
     .hero-title {
-      font-family: var(--font-display);
-      font-size: clamp(38px, 5.2vw, 68px);
+      font-size: clamp(36px, 5vw, 64px);
       font-weight: 800;
-      line-height: 1.1;
-      letter-spacing: -0.03em;
-      margin-bottom: 24px;
-      background: linear-gradient(180deg, #ffffff 30%, #94a3b8 100%);
+      line-height: 1.08;
+      letter-spacing: -0.035em;
+      margin-bottom: 22px;
+      color: #ffffff;
+    }
+
+    .hero-title .gradient-text {
+      background: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
 
-    .hero-title .highlight {
-      background: linear-gradient(135deg, #22d3ee 20%, #60a5fa 60%, #a78bfa 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .hero-subtitle {
-      max-width: 820px;
+    .hero-lead {
+      max-width: 760px;
       margin: 0 auto 36px;
-      font-size: clamp(16px, 1.8vw, 20px);
+      font-size: clamp(16px, 1.6vw, 19px);
       color: var(--text-muted);
       line-height: 1.6;
+      font-weight: 400;
+      letter-spacing: -0.01em;
     }
 
-    .hero-ctas {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 16px;
-      margin-bottom: 48px;
+    .hero-lead strong {
+      color: var(--text);
+      font-weight: 600;
     }
 
-    /* Install Card Component */
-    .install-box {
-      max-width: 680px;
-      margin: 0 auto 64px;
+    /* Command Palette / Install Bar */
+    .install-bar {
+      max-width: 640px;
+      margin: 0 auto 48px;
       background: var(--bg-surface);
-      border: 1px solid var(--border-accent);
-      border-radius: 16px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
       overflow: hidden;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), 0 0 30px rgba(6, 182, 212, 0.1);
+      transition: border-color 0.2s;
+    }
+
+    .install-bar:focus-within, .install-bar:hover {
+      border-color: var(--border-accent);
     }
 
     .install-tabs {
       display: flex;
-      background: rgba(0, 0, 0, 0.35);
-      border-bottom: 1px solid var(--border-subtle);
-      padding: 6px 8px 0;
-      gap: 6px;
+      background: rgba(0, 0, 0, 0.3);
+      border-bottom: 1px solid var(--border);
+      padding: 4px 6px 0;
+      gap: 4px;
     }
 
-    .install-tab {
-      padding: 8px 16px;
-      font-size: 13px;
+    .tab-btn {
+      padding: 6px 14px;
+      font-size: 12px;
       font-weight: 600;
-      color: var(--text-muted);
+      color: var(--text-dim);
       background: transparent;
       border: none;
-      border-top-left-radius: 8px;
-      border-top-right-radius: 8px;
+      border-top-left-radius: 6px;
+      border-top-right-radius: 6px;
       cursor: pointer;
-      transition: all 0.2s;
+      font-family: var(--font-mono);
+      transition: all 0.15s;
     }
 
-    .install-tab.active {
-      color: #38bdf8;
+    .tab-btn.active {
+      color: var(--cyan);
       background: var(--bg-surface);
-      border-bottom: 2px solid #06b6d4;
+      border-bottom: 2px solid var(--cyan);
     }
 
-    .install-content {
-      padding: 16px 20px;
+    .install-cmd-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
+      padding: 14px 18px;
+      gap: 12px;
     }
 
-    .command-line {
+    .cmd-text {
       font-family: var(--font-mono);
-      font-size: 14px;
-      color: #e2e8f0;
+      font-size: 13px;
+      color: #f1f5f9;
       text-align: left;
       word-break: break-all;
-    }
-
-    .command-line .prompt {
-      color: #06b6d4;
-      user-select: none;
-      margin-right: 8px;
-    }
-
-    .copy-btn {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-main);
-      padding: 8px 14px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
       display: flex;
       align-items: center;
+      gap: 8px;
+    }
+
+    .cmd-prompt {
+      color: var(--cyan);
+      user-select: none;
+      font-weight: 700;
+    }
+
+    .copy-button {
+      display: inline-flex;
+      align-items: center;
       gap: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      transition: all 0.15s;
       white-space: nowrap;
-      transition: all 0.2s;
     }
 
-    .copy-btn:hover {
-      background: rgba(255, 255, 255, 0.15);
-      border-color: rgba(255, 255, 255, 0.3);
+    .copy-button:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: var(--text);
+      border-color: rgba(255, 255, 255, 0.2);
     }
 
-    /* Agent Compatibility Bar */
-    .agent-badges {
+    .copy-button.copied {
+      color: var(--emerald);
+      border-color: var(--emerald);
+      background: var(--emerald-dim);
+    }
+
+    /* Agent Compatibility Chips */
+    .agent-matrix {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       justify-content: center;
-      gap: 10px;
-      margin-top: 10px;
+      gap: 8px;
+      margin-bottom: 64px;
     }
 
-    .agent-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 12px;
+    .agent-matrix-label {
+      font-size: 12px;
+      color: var(--text-dim);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-right: 4px;
+    }
+
+    .agent-chip {
+      padding: 4px 10px;
       background: rgba(255, 255, 255, 0.03);
-      border: 1px solid var(--border-subtle);
-      border-radius: 8px;
-      font-size: 13px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 12px;
       color: var(--text-muted);
-      transition: all 0.2s;
+      font-weight: 500;
+      transition: all 0.15s;
     }
 
-    .agent-badge:hover {
-      border-color: rgba(6, 182, 212, 0.4);
-      color: var(--text-main);
-      transform: translateY(-1px);
+    .agent-chip:hover {
+      border-color: rgba(56, 189, 248, 0.4);
+      color: var(--text);
     }
 
-    /* Interactive Terminal Demo */
-    .terminal-window {
-      max-width: 980px;
-      margin: 40px auto 100px;
-      background: #090d16;
-      border: 1px solid var(--border-accent);
-      border-radius: 16px;
-      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7), 0 0 50px rgba(6, 182, 212, 0.15);
+    /* Command Code Interactive Terminal Showcase */
+    .terminal-container {
+      max-width: 960px;
+      margin: 0 auto 90px;
+      background: #090c13;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(56, 189, 248, 0.05);
       overflow: hidden;
     }
 
     .terminal-header {
-      background: #0f1524;
-      padding: 12px 18px;
+      background: #0e121b;
+      padding: 10px 16px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      border-bottom: 1px solid var(--border-subtle);
+      border-bottom: 1px solid var(--border);
     }
 
-    .window-controls {
+    .terminal-dots {
       display: flex;
-      gap: 8px;
+      gap: 6px;
     }
 
-    .window-dot {
-      width: 12px;
-      height: 12px;
+    .terminal-dot {
+      width: 10px;
+      height: 10px;
       border-radius: 50%;
+      background: #232733;
     }
 
-    .dot-red { background: #ef4444; }
-    .dot-yellow { background: #f59e0b; }
-    .dot-green { background: #10b981; }
-
-    .terminal-title {
+    .terminal-title-bar {
       font-family: var(--font-mono);
       font-size: 12px;
       color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
-    .terminal-body {
-      padding: 24px;
+    .terminal-nav-tabs {
+      display: flex;
+      background: #0b0e16;
+      border-bottom: 1px solid var(--border);
+      padding: 0 8px;
+      overflow-x: auto;
+    }
+
+    .t-nav-btn {
+      padding: 9px 16px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-dim);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+
+    .t-nav-btn:hover {
+      color: var(--text-muted);
+    }
+
+    .t-nav-btn.active {
+      color: var(--cyan);
+      border-bottom-color: var(--cyan);
+      background: rgba(56, 189, 248, 0.04);
+    }
+
+    .terminal-viewport {
+      padding: 22px 24px;
       font-family: var(--font-mono);
       font-size: 13px;
       line-height: 1.7;
       text-align: left;
+      min-height: 260px;
+      background: #07090e;
     }
 
-    .term-line {
+    .t-line {
       display: flex;
       gap: 12px;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
 
-    .term-prompt { color: #06b6d4; font-weight: 700; user-select: none; }
-    .term-cmd { color: #f8fafc; }
-    .term-out { color: #94a3b8; }
-    .term-highlight { color: #38bdf8; font-weight: 600; }
-    .term-green { color: #34d399; font-weight: 600; }
-    .term-amber { color: #fbbf24; }
+    .t-prompt { color: var(--cyan); font-weight: 700; user-select: none; }
+    .t-text-white { color: #f8fafc; font-weight: 600; }
+    .t-text-muted { color: var(--text-muted); }
+    .t-text-dim { color: var(--text-dim); }
+    .t-text-green { color: #34d399; }
+    .t-text-cyan { color: #38bdf8; }
+    .t-text-purple { color: #c084fc; }
+    .t-text-amber { color: #fbbf24; }
+    .t-tag {
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+    }
 
-    /* Features Section */
-    .section-header {
-      text-align: center;
-      margin-bottom: 60px;
+    /* Comparison Table: Traditional vs NetVein */
+    .comparison-section {
+      margin-bottom: 100px;
     }
 
     .section-eyebrow {
       font-family: var(--font-mono);
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--accent-cyan);
-      margin-bottom: 12px;
+      letter-spacing: 0.08em;
+      color: var(--cyan);
+      margin-bottom: 10px;
+      text-align: center;
     }
 
     .section-title {
-      font-family: var(--font-display);
-      font-size: clamp(30px, 3.5vw, 44px);
+      font-size: clamp(26px, 3.2vw, 40px);
       font-weight: 700;
-      line-height: 1.2;
-      margin-bottom: 16px;
+      letter-spacing: -0.025em;
+      text-align: center;
+      margin-bottom: 14px;
+      color: #ffffff;
     }
 
     .section-desc {
       max-width: 680px;
-      margin: 0 auto;
+      margin: 0 auto 48px;
+      text-align: center;
       color: var(--text-muted);
-      font-size: 16px;
+      font-size: 15px;
     }
 
+    .table-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    table.compare-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    table.compare-table th {
+      padding: 16px 20px;
+      background: var(--bg-subtle);
+      border-bottom: 1px solid var(--border);
+      color: var(--text-dim);
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    table.compare-table td {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-muted);
+      vertical-align: middle;
+    }
+
+    table.compare-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .td-dim {
+      color: var(--text-dim);
+    }
+
+    .td-highlight {
+      color: #e2e8f0;
+      font-weight: 500;
+    }
+
+    .td-badge-green {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--emerald);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .td-badge-red {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #f87171;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    /* Core Architecture Features Grid */
     .features-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-      gap: 24px;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
       margin-bottom: 100px;
     }
 
     .feature-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border-subtle);
-      border-radius: 16px;
-      padding: 32px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       position: relative;
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-      backdrop-filter: blur(12px);
     }
 
     .feature-card:hover {
-      background: var(--bg-card-hover);
-      border-color: rgba(6, 182, 212, 0.4);
-      transform: translateY(-4px);
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(6, 182, 212, 0.1);
+      border-color: var(--border-accent);
+      background: var(--bg-surface-elevated);
+      transform: translateY(-2px);
     }
 
-    .feature-icon {
-      width: 48px;
-      height: 48px;
-      border-radius: 12px;
-      background: rgba(6, 182, 212, 0.1);
-      border: 1px solid rgba(6, 182, 212, 0.25);
+    .f-icon-box {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      background: var(--cyan-dim);
+      border: 1px solid rgba(56, 189, 248, 0.2);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 24px;
-      margin-bottom: 20px;
+      margin-bottom: 18px;
+      color: var(--cyan);
     }
 
-    .feature-title {
-      font-family: var(--font-display);
-      font-size: 20px;
+    .f-title {
+      font-size: 17px;
       font-weight: 700;
-      margin-bottom: 12px;
-      color: var(--text-main);
+      margin-bottom: 8px;
+      color: var(--text);
+      letter-spacing: -0.01em;
     }
 
-    .feature-text {
+    .f-desc {
+      font-size: 13.5px;
       color: var(--text-muted);
-      font-size: 14px;
       line-height: 1.6;
     }
 
-    /* Comparison / Metric Stats */
-    .stats-bar {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 20px;
-      margin-bottom: 100px;
+    /* Live Searchable Tool Explorer (123 Tools) */
+    .tool-explorer {
       background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: 20px;
-      padding: 36px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 32px;
+      margin-bottom: 100px;
     }
 
-    .stat-item {
-      text-align: center;
+    .tool-filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
     }
 
-    .stat-number {
-      font-family: var(--font-display);
-      font-size: 44px;
-      font-weight: 800;
-      background: linear-gradient(135deg, #22d3ee, #60a5fa);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+    .search-input-wrap {
+      position: relative;
+      flex: 1;
+      min-width: 280px;
+      max-width: 440px;
+    }
+
+    .search-input {
+      width: 100%;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      padding: 10px 14px 10px 38px;
+      border-radius: 8px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .search-input:focus {
+      border-color: var(--cyan);
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-dim);
+      pointer-events: none;
+    }
+
+    .filter-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .filter-chip {
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .filter-chip:hover {
+      color: var(--text);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .filter-chip.active {
+      color: var(--cyan);
+      border-color: var(--cyan);
+      background: var(--cyan-dim);
+    }
+
+    .tool-count-badge {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .tool-results-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 12px;
+      max-height: 520px;
+      overflow-y: auto;
+      padding-right: 6px;
+    }
+
+    .tool-item-card {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border-muted);
+      border-radius: 8px;
+      padding: 14px;
+      transition: all 0.15s;
+    }
+
+    .tool-item-card:hover {
+      border-color: var(--border-accent);
+      background: var(--bg-surface-elevated);
+    }
+
+    .t-name {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--cyan);
+      margin-bottom: 4px;
+    }
+
+    .t-domain {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 500;
       margin-bottom: 6px;
     }
 
-    .stat-label {
-      font-size: 14px;
+    .t-desc {
+      font-size: 12px;
       color: var(--text-muted);
-      font-weight: 500;
+      line-height: 1.45;
     }
 
-    /* Domain Tool Explorer */
-    .domains-section {
+    /* Agent Configuration Snippets */
+    .config-section {
       margin-bottom: 100px;
     }
 
-    .domain-list {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 16px;
-    }
-
-    .domain-pill {
-      background: rgba(16, 24, 40, 0.6);
-      border: 1px solid var(--border-subtle);
-      border-radius: 12px;
-      padding: 18px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      transition: all 0.2s;
-    }
-
-    .domain-pill:hover {
-      border-color: rgba(6, 182, 212, 0.35);
-      background: rgba(22, 33, 56, 0.7);
-    }
-
-    .domain-name {
-      font-weight: 600;
-      font-size: 14px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .domain-count {
-      font-family: var(--font-mono);
-      font-size: 12px;
-      color: #38bdf8;
-      background: rgba(6, 182, 212, 0.1);
-      padding: 2px 8px;
-      border-radius: 6px;
-      border: 1px solid rgba(6, 182, 212, 0.2);
-    }
-
-    /* Agent Configuration Setup */
-    .config-tabs-wrapper {
-      max-width: 860px;
-      margin: 0 auto 100px;
+    .config-box {
+      max-width: 820px;
+      margin: 0 auto;
       background: var(--bg-surface);
-      border: 1px solid var(--border-accent);
-      border-radius: 16px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
       overflow: hidden;
     }
 
-    .config-code-box {
-      padding: 24px;
-      background: #090d16;
+    .config-code {
+      padding: 20px 24px;
+      background: #07090e;
       font-family: var(--font-mono);
       font-size: 13px;
       line-height: 1.6;
-      color: #cbd5e1;
+      color: #e2e8f0;
       overflow-x: auto;
     }
 
     /* Footer */
     footer {
-      border-top: 1px solid var(--border-subtle);
-      padding: 60px 0 40px;
-      background: rgba(6, 9, 17, 0.9);
+      border-top: 1px solid var(--border);
+      padding: 48px 0 36px;
+      background: #05070a;
     }
 
     .footer-inner {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 20px;
+      gap: 18px;
       text-align: center;
     }
 
     .footer-links {
       display: flex;
       gap: 24px;
-      font-size: 14px;
+      font-size: 13px;
       color: var(--text-muted);
     }
 
     .footer-links a:hover {
-      color: #38bdf8;
+      color: var(--cyan);
     }
 
     .footer-copy {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-dim);
     }
 
     @media (max-width: 768px) {
       .nav-links { display: none; }
-      .stats-bar { grid-template-columns: repeat(2, 1fr); gap: 28px; }
-      .hero-ctas { flex-direction: column; width: 100%; }
-      .hero-ctas .btn { width: 100%; justify-content: center; }
+      .install-cmd-row { flex-direction: column; align-items: flex-start; }
+      .copy-button { align-self: flex-end; }
     }
   </style>
 </head>
 <body>
-  <div class="grid-bg"></div>
+  <div class="bg-grid"></div>
+  <div class="ambient-glow"></div>
 
-  <!-- Navigation -->
+  <!-- Header -->
   <header>
     <div class="container nav-inner">
-      <div class="brand-group">
-        <a href="./">
-          <img src="assets/brand/wordmark.svg" alt="NetVein" class="brand-logo" onerror="this.onerror=null; this.src='assets/brand/netvein-logo.svg';">
-        </a>
-      </div>
+      <a href="./" class="brand-link">
+        <img src="assets/brand/wordmark.svg" alt="NetVein" class="brand-wordmark" onerror="this.onerror=null; this.src='assets/brand/netvein-logo.svg';">
+      </a>
 
       <nav class="nav-links">
-        <a href="#features">Features</a>
-        <a href="#domains">123 Tools</a>
-        <a href="#quickstart">Quickstart</a>
-        <a href="#setup">Agent Setup</a>
-        <a href="https://github.com/dongp06/netvein">GitHub</a>
+        <a href="#features">Architecture</a>
+        <a href="#comparison">Versus Scrapers</a>
+        <a href="#tools">123 Tools</a>
+        <a href="#setup">Agent Wire</a>
+        <a href="https://github.com/dongp06/netvein" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://www.npmjs.com/package/netvein-mcp" target="_blank" rel="noopener">npm</a>
       </nav>
 
       <div class="nav-actions">
-        <a href="https://github.com/dongp06/netvein" class="btn btn-secondary">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+        <a href="https://github.com/dongp06/netvein" class="btn btn-secondary" target="_blank" rel="noopener">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
           </svg>
-          Star
+          GitHub
         </a>
         <a href="#quickstart" class="btn btn-primary">Install CLI</a>
       </div>
@@ -661,255 +856,259 @@
   <!-- Hero Section -->
   <section class="hero">
     <div class="container">
-      <div class="badge-pill">
+      <div class="release-tag">
         <span class="pulse-dot"></span>
-        <span>NetVein v0.6.0 · Local-First MCP Server</span>
+        <span>v0.6.0 · Local-First CDP &amp; Wire Daemon</span>
       </div>
 
       <h1 class="hero-title">
-        Autonomous Web Reverse Engineering &amp;<br>
-        <span class="highlight">Wire-Level Dynamic Instrumentation</span>
+        The Reverse Engineer's<br>
+        <span class="gradient-text">Browser MCP Server.</span>
       </h1>
 
-      <p class="hero-subtitle">
-        Equip Claude Code, Cursor, Codex, OpenCode, Gemini, Antigravity, and Hermes Agent with single-session Chrome CDP, in-flight packet interception, AST crypto discovery, and stealth evasion. 100% local. Zero DOM bloat.
+      <p class="hero-lead">
+        Equip <strong>Claude Code</strong>, <strong>Cursor</strong>, <strong>Codex</strong>, <strong>OpenCode</strong>, <strong>Gemini</strong>, <strong>Antigravity</strong>, and <strong>Hermes Agent</strong> with single-session Chrome CDP, in-flight packet tampering, AST cryptographic hooks, and stealth bot evasion. 100% local. Zero DOM bloat.
       </p>
 
-      <div class="hero-ctas">
-        <a href="#quickstart" class="btn btn-primary" style="padding: 13px 28px; font-size: 15px;">
-          🚀 Get Started in 60s
-        </a>
-        <a href="https://github.com/dongp06/netvein" class="btn btn-secondary" style="padding: 13px 24px; font-size: 15px;">
-          Explore Source Code
-        </a>
-      </div>
-
-      <!-- Quick Install Box -->
-      <div class="install-box" id="quickstart">
+      <!-- Install Bar -->
+      <div class="install-bar" id="quickstart">
         <div class="install-tabs">
-          <button class="install-tab active" onclick="switchInstall('npm', this)">npm (Recommended)</button>
-          <button class="install-tab" onclick="switchInstall('npx', this)">npx (Zero Install)</button>
-          <button class="install-tab" onclick="switchInstall('sh', this)">macOS / Linux</button>
-          <button class="install-tab" onclick="switchInstall('ps1', this)">Windows PowerShell</button>
+          <button class="tab-btn active" onclick="setInstall('npm', this)">npm (Recommended)</button>
+          <button class="tab-btn" onclick="setInstall('npx', this)">npx (Zero Install)</button>
+          <button class="tab-btn" onclick="setInstall('sh', this)">macOS / Linux</button>
+          <button class="tab-btn" onclick="setInstall('ps1', this)">Windows PowerShell</button>
         </div>
-        <div class="install-content">
-          <div class="command-line" id="installCmd">
-            <span class="prompt">$</span><span id="cmdText">npm install -g netvein-mcp &amp;&amp; netvein install</span>
+        <div class="install-cmd-row">
+          <div class="cmd-text">
+            <span class="cmd-prompt">$</span>
+            <span id="installCmdText">npm install -g netvein-mcp &amp;&amp; netvein install</span>
           </div>
-          <button class="copy-btn" onclick="copyInstall()">
-            <span id="copyIcon">📋</span>
-            <span id="copyLabel">Copy</span>
+          <button class="copy-button" onclick="copyInstallCmd(this)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <span class="btn-text">Copy</span>
           </button>
         </div>
       </div>
 
-      <!-- Agents Badges -->
-      <div class="agent-badges">
-        <span style="font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin-right: 8px;">Auto-wires into:</span>
-        <span class="agent-badge">🟣 Claude Code</span>
-        <span class="agent-badge">⚡ Cursor</span>
-        <span class="agent-badge">🟢 Antigravity IDE</span>
-        <span class="agent-badge">🤖 Codex CLI</span>
-        <span class="agent-badge">✨ OpenCode</span>
-        <span class="agent-badge">🌐 Gemini CLI</span>
-        <span class="agent-badge">🛡️ Hermes Agent</span>
+      <!-- Agent Matrix -->
+      <div class="agent-matrix">
+        <span class="agent-matrix-label">Native MCP Support:</span>
+        <span class="agent-chip">Claude Code</span>
+        <span class="agent-chip">Cursor</span>
+        <span class="agent-chip">Antigravity IDE</span>
+        <span class="agent-chip">Codex CLI</span>
+        <span class="agent-chip">OpenCode</span>
+        <span class="agent-chip">Gemini CLI</span>
+        <span class="agent-chip">Hermes Agent</span>
       </div>
 
-      <!-- Terminal Showcase -->
-      <div class="terminal-window">
+      <!-- Command Code Terminal Showcase -->
+      <div class="terminal-container">
         <div class="terminal-header">
-          <div class="window-controls">
-            <span class="window-dot dot-red"></span>
-            <span class="window-dot dot-yellow"></span>
-            <span class="window-dot dot-green"></span>
+          <div class="terminal-dots">
+            <div class="terminal-dot"></div>
+            <div class="terminal-dot"></div>
+            <div class="terminal-dot"></div>
           </div>
-          <span class="terminal-title">netvein-mcp — autonomous packet tamper &amp; crypto hook</span>
-          <span style="width: 48px;"></span>
+          <div class="terminal-title-bar">
+            <span>netvein</span>
+            <span style="opacity: 0.3;">/</span>
+            <span>runtime-session</span>
+          </div>
+          <div style="font-size: 11px; color: var(--emerald); font-family: var(--font-mono);">● CDP 9222 ACTIVE</div>
         </div>
-        <div class="terminal-body">
-          <div class="term-line">
-            <span class="term-prompt">agent&gt;</span>
-            <span class="term-cmd">call traffic_breakpoint_set({ pattern: "/api/v2/secure/sign", maxHoldMs: 15000 })</span>
-          </div>
-          <div class="term-line">
-            <span class="term-prompt">daemon&gt;</span>
-            <span class="term-green">✓ Breakpoint armed for /api/v2/secure/sign (held in flight on the wire)</span>
-          </div>
-          <div class="term-line">
-            <span class="term-prompt">agent&gt;</span>
-            <span class="term-cmd">call detect_crypto({ algorithm: "HMAC-SHA256" })</span>
-          </div>
-          <div class="term-line">
-            <span class="term-prompt">netvein&gt;</span>
-            <span class="term-out">Located candidate hash function: <span class="term-highlight">calculateHmacSig(n, t)</span> in bundle_app.js:1428</span>
-          </div>
-          <div class="term-line">
-            <span class="term-prompt">agent&gt;</span>
-            <span class="term-cmd">call traffic_breakpoint_release({ flowId: "flow_8f3a", action: "modify", patch: { headers: { "X-Client-Sig": "e3b0c44..." } } })</span>
-          </div>
-          <div class="term-line">
-            <span class="term-prompt">daemon&gt;</span>
-            <span class="term-green">✓ Flow flow_8f3a patched and forwarded: HTTP 200 OK (218ms)</span>
-          </div>
+
+        <div class="terminal-nav-tabs">
+          <button class="t-nav-btn active" onclick="showDemo('wire', this)">01. Wire Up Agents</button>
+          <button class="t-nav-btn" onclick="showDemo('breakpoint', this)">02. In-Flight Breakpoint</button>
+          <button class="t-nav-btn" onclick="showDemo('crypto', this)">03. AST Crypto Discovery</button>
+          <button class="t-nav-btn" onclick="showDemo('stealth', this)">04. Stealth Bot Evasion</button>
+        </div>
+
+        <div class="terminal-viewport" id="demoViewport">
+          <!-- Populated by JS -->
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Metrics Bar -->
-  <div class="container">
-    <div class="stats-bar">
-      <div class="stat-item">
-        <div class="stat-number">123</div>
-        <div class="stat-label">Specialized Tools</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-number">100%</div>
-        <div class="stat-label">Local &amp; Private</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-number">0ms</div>
-        <div class="stat-label">Subprocess Leakage</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-number">203/203</div>
-        <div class="stat-label">Unit Tests Passing</div>
-      </div>
-    </div>
-  </div>
+  <!-- Comparison Section -->
+  <section class="container comparison-section" id="comparison">
+    <div class="section-eyebrow">Paradigm Shift</div>
+    <h2 class="section-title">Built for Reverse Engineers, Not Scrapers</h2>
+    <p class="section-desc">Traditional scrapers dump bloated HTML and get blocked by Cloudflare. NetVein exposes the wire-level network stack directly to your agent.</p>
 
-  <!-- Core Features -->
-  <section class="container" id="features">
-    <div class="section-header">
-      <div class="section-eyebrow">Architectural Excellence</div>
-      <h2 class="section-title">Built for the Reverse Engineer's Workflow</h2>
-      <p class="section-desc">Traditional scrapers dump 50,000 DOM tokens and get blocked by Cloudflare. NetVein gives your agent surgical precision.</p>
+    <div class="table-card">
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>Dimension</th>
+            <th>Generic Browser Scrapers (Playwright / Puppeteer)</th>
+            <th>NetVein MCP</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="td-highlight">DOM Token Overhead</td>
+            <td class="td-badge-red">50,000+ tokens (raw HTML dump)</td>
+            <td class="td-badge-green">&lt; 400 tokens (curated semantic view)</td>
+          </tr>
+          <tr>
+            <td class="td-highlight">Traffic Scope</td>
+            <td class="td-dim">Page-context only (misses CLI &amp; curl)</td>
+            <td class="td-badge-green">Wire-level loopback daemon (catches all)</td>
+          </tr>
+          <tr>
+            <td class="td-highlight">In-Flight Tampering</td>
+            <td class="td-dim">Read-only logging after response arrives</td>
+            <td class="td-badge-green">Hold matching flows, mutate payload, forward</td>
+          </tr>
+          <tr>
+            <td class="td-highlight">Cryptographic Analysis</td>
+            <td class="td-dim">None (black-box payload)</td>
+            <td class="td-badge-green">AST hash scoring &amp; SubtleCrypto hooks</td>
+          </tr>
+          <tr>
+            <td class="td-highlight">Anti-Bot &amp; Anti-Debug</td>
+            <td class="td-badge-red">Frozen by `debugger;` loops / Turnstile</td>
+            <td class="td-badge-green">Seed fingerprint spoofing &amp; loop neutering</td>
+          </tr>
+          <tr>
+            <td class="td-highlight">Crash Resistance</td>
+            <td class="td-dim">History lost if process drops</td>
+            <td class="td-badge-green">.netvein/ JSONL streams survive daemon restarts</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
+  </section>
+
+  <!-- Architectural Pillars -->
+  <section class="container" id="features">
+    <div class="section-eyebrow">Engine Core</div>
+    <h2 class="section-title">Six Pillars of NetVein</h2>
+    <p class="section-desc">A unified architecture combining DevTools Protocol control with a dedicated wire-level proxy daemon.</p>
 
     <div class="features-grid">
       <div class="feature-card">
-        <div class="feature-icon">🔌</div>
-        <h3 class="feature-title">Single-Session CDP Bridge</h3>
-        <p class="feature-text">Zero reconnect overhead. NetVein boots Chrome, Edge, or Brave on dedicated debug port 9222 and retains state, session tabs, and breakpoints seamlessly across every prompt.</p>
+        <div class="f-icon-box">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+          </svg>
+        </div>
+        <h3 class="f-title">Single-Session CDP Bridge</h3>
+        <p class="f-desc">Launches and binds Chrome, Edge, or Brave on debug port 9222. Keeps tab states, sessions, and memory breakpoints persistently alive across repeated tool calls.</p>
       </div>
 
       <div class="feature-card">
-        <div class="feature-icon">🛰️</div>
-        <h3 class="feature-title">Autonomous Capture Kit</h3>
-        <p class="feature-text">Hold in-flight requests on the wire, modify signatures before dispatch, inspect live WebSocket frames, and replay responses with dot-path schema diffing.</p>
+        <div class="f-icon-box">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+          </svg>
+        </div>
+        <h3 class="f-title">Autonomous Capture Kit</h3>
+        <p class="f-desc">Pause matching network exchanges in flight. Mutate request headers, signature hashes, or body JSON before dispatching, and replay with dot-path schema diffing.</p>
       </div>
 
       <div class="feature-card">
-        <div class="feature-icon">⚡</div>
-        <h3 class="feature-title">Wire-Level Traffic Daemon</h3>
-        <p class="feature-text">Built-in loopback MITM proxy intercepts everything on the network stack. Subprocesses, background fetches, and curl commands are captured without blind spots.</p>
+        <div class="f-icon-box">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+            <line x1="6" y1="6" x2="6.01" y2="6"></line>
+            <line x1="6" y1="18" x2="6.01" y2="18"></line>
+          </svg>
+        </div>
+        <h3 class="f-title">Wire-Level Traffic Daemon</h3>
+        <p class="f-desc">A standalone loopback MITM proxy intercepts everything on the network stack. Subprocesses, background scripts, and curl invocations route through transparently.</p>
       </div>
 
       <div class="feature-card">
-        <div class="feature-icon">🔍</div>
-        <h3 class="feature-title">AST &amp; Crypto Intelligence</h3>
-        <p class="feature-text">Parse and traverse minified JavaScript ASTs with Acorn. Auto-score candidate cryptographic hashing algorithms, hook SubtleCrypto, and discover hidden API routes.</p>
+        <div class="f-icon-box">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </div>
+        <h3 class="f-title">AST &amp; Crypto Analysis</h3>
+        <p class="f-desc">Traverse minified JavaScript ASTs with Acorn. Automatically score candidate HMAC/AES signing algorithms, hook SubtleCrypto, and discover hidden API routes.</p>
       </div>
 
       <div class="feature-card">
-        <div class="feature-icon">🛡️</div>
-        <h3 class="feature-title">Stealth &amp; Anti-Crawl Evasion</h3>
-        <p class="feature-text">Defeat bot detection suites: Cloudflare Turnstile, Akamai, DataDome, and GeeTest. Patch WebGL, Audio, Canvas, and neutralize anti-debug loops automatically.</p>
+        <div class="f-icon-box">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          </svg>
+        </div>
+        <h3 class="f-title">Stealth &amp; Evasion</h3>
+        <p class="f-desc">Defeat Cloudflare Turnstile, Akamai, DataDome, and GeeTest. Patch WebGL, Audio, Canvas, and neutralize runtime anti-debug loops automatically.</p>
       </div>
 
       <div class="feature-card">
-        <div class="feature-icon">📁</div>
-        <h3 class="feature-title">Project Workspace (.netvein)</h3>
-        <p class="feature-text">Per-project state discovered upward from your repo root. Automatically writes streaming JSONL traffic logs, keeps configuration defaults, and preserves analysis history across crashes.</p>
+        <div class="f-icon-box">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+        </div>
+        <h3 class="f-title">Project Workspace (.netvein)</h3>
+        <p class="f-desc">Per-project state discovered upward from your repository. Automatically records streaming JSONL traffic logs, keeps configuration defaults, and preserves analysis across crashes.</p>
       </div>
     </div>
   </section>
 
-  <!-- Domain Tool Surface -->
-  <section class="container domains-section" id="domains">
-    <div class="section-header">
-      <div class="section-eyebrow">Complete Tool Surface</div>
-      <h2 class="section-title">123 Tools Across 14 Domains</h2>
-      <p class="section-desc">Every tool is typed with Zod schema verification and returns clean, token-efficient JSON envelopes.</p>
-    </div>
+  <!-- Searchable Tool Surface (123 Tools) -->
+  <section class="container" id="tools">
+    <div class="section-eyebrow">Tool Matrix</div>
+    <h2 class="section-title">123 Specialized Tools</h2>
+    <p class="section-desc">Strict Zod input schemas returning clean, token-efficient JSON envelopes tailored for AI context windows.</p>
 
-    <div class="domain-list">
-      <div class="domain-pill">
-        <div class="domain-name"><span>🌐</span> CDP Navigation &amp; Viewport</div>
-        <div class="domain-count">10 tools</div>
+    <div class="tool-explorer">
+      <div class="tool-filter-bar">
+        <div class="search-input-wrap">
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="toolSearchInput" class="search-input" placeholder="Filter 123 tools (e.g. breakpoint, crypto, stealth, traffic)..." oninput="filterTools()">
+        </div>
+
+        <div class="filter-chips">
+          <button class="filter-chip active" onclick="selectDomain('all', this)">All (123)</button>
+          <button class="filter-chip" onclick="selectDomain('traffic', this)">Traffic &amp; MITM (8)</button>
+          <button class="filter-chip" onclick="selectDomain('crypto', this)">Crypto &amp; AST (10)</button>
+          <button class="filter-chip" onclick="selectDomain('stealth', this)">Stealth (5)</button>
+          <button class="filter-chip" onclick="selectDomain('cdp', this)">CDP Control (31)</button>
+          <button class="filter-chip" onclick="selectDomain('runtime', this)">Runtime &amp; Hooks (13)</button>
+          <button class="filter-chip" onclick="selectDomain('workspace', this)">Workspace (13)</button>
+        </div>
       </div>
-      <div class="domain-pill">
-        <div class="domain-name"><span>🖱️</span> Semantic DOM Interaction</div>
-        <div class="domain-count">9 tools</div>
-      </div>
-      <div class="domain-pill">
-        <div class="domain-name"><span>🎯</span> Dynamic JS Breakpoints</div>
-        <div class="domain-count">12 tools</div>
-      </div>
-      <div class="domain-pill">
-        <div class="domain-name"><span>🧭</span> Call Frame Scope &amp; Evaluation</div>
-        <div class="domain-count">7 tools</div>
-      </div>
-      <div class="domain-pill">
-        <div class="domain-name"><span>📡</span> CDP Network Interception</div>
-        <div class="domain-count">12 tools</div>
-      </div>
-      <div class="domain-pill">
-        <div class="domain-name"><span>🚦</span> Traffic Daemon &amp; Breakpoints</div>
-        <div class="domain-count">8 tools</div>
-      </div>
-      <div class="domain-pill">
-        <div class="domain-name"><span>🌳</span> AST Analysis &amp; Extraction</div>
-        <div class="domain-count">6 tools</div>
-      </div>
-      <div class="domain-pill">
-        <div class="domain-name"><span>🔐</span> Cryptography &amp; Hashing Hooks</div>
-        <div class="domain-count">4 tools</div>
-      </div>
-      <div class="domain-pill">
-        <div class="domain-name"><span>🚫</span> Anti-Debug &amp; Function Patching</div>
-        <div class="domain-count">3 tools</div>
-      </div>
-      <div class="domain-pill">
-        <div class="domain-name"><span>🥷</span> Stealth &amp; Anti-Crawl Evasion</div>
-        <div class="domain-count">5 tools</div>
-      </div>
-      <div class="domain-pill">
-        <div class="domain-name"><span>⚡</span> Webpack Unpack &amp; JSRPC</div>
-        <div class="domain-count">2 tools</div>
-      </div>
-      <div class="domain-pill">
-        <div class="domain-name"><span>👤</span> Identity &amp; Profile Isolation</div>
-        <div class="domain-count">5 tools</div>
-      </div>
-      <div class="domain-pill">
-        <div class="domain-name"><span>⏱️</span> Runtime Taint Tracking</div>
-        <div class="domain-count">13 tools</div>
-      </div>
-      <div class="domain-pill">
-        <div class="domain-name"><span>📦</span> Workspace, Storage &amp; Bundles</div>
-        <div class="domain-count">13 tools</div>
+
+      <div class="tool-results-grid" id="toolsGrid">
+        <!-- Rendered by JS -->
       </div>
     </div>
   </section>
 
-  <!-- Agent Setup Snippets -->
-  <section class="container" id="setup">
-    <div class="section-header">
-      <div class="section-eyebrow">Zero Friction Setup</div>
-      <h2 class="section-title">Connects to All Major AI Coding Agents</h2>
-      <p class="section-desc">Run <code>netvein install</code> to auto-configure all agents, or paste the snippet directly into your config file.</p>
-    </div>
+  <!-- Agent Wire Configuration -->
+  <section class="container config-section" id="setup">
+    <div class="section-eyebrow">Integration</div>
+    <h2 class="section-title">Connect in One Step</h2>
+    <p class="section-desc">Run <code>netvein install</code> to configure all detected coding assistants automatically, or paste the configuration below.</p>
 
-    <div class="config-tabs-wrapper">
+    <div class="config-box">
       <div class="install-tabs">
-        <button class="install-tab active" onclick="switchConfig('claude', this)">Claude Code</button>
-        <button class="install-tab" onclick="switchConfig('cursor', this)">Cursor</button>
-        <button class="install-tab" onclick="switchConfig('antigravity', this)">Antigravity / Gemini</button>
-        <button class="install-tab" onclick="switchConfig('npx', this)">npx Direct</button>
+        <button class="tab-btn active" onclick="setConfig('claude', this)">Claude Code</button>
+        <button class="tab-btn" onclick="setConfig('cursor', this)">Cursor</button>
+        <button class="tab-btn" onclick="setConfig('antigravity', this)">Antigravity / Gemini</button>
+        <button class="tab-btn" onclick="setConfig('codex', this)">Codex CLI</button>
+        <button class="tab-btn" onclick="setConfig('npx', this)">npx Direct</button>
       </div>
-      <div class="config-code-box">
-        <pre><code id="configCode">{
+      <div class="config-code">
+        <pre><code id="configDisplay">// ~/.claude.json
+{
   "mcpServers": {
     "netvein": {
       "command": "netvein",
@@ -925,59 +1124,180 @@
   <footer>
     <div class="container footer-inner">
       <a href="./">
-        <img src="assets/brand/wordmark.svg" alt="NetVein" style="height: 28px;" onerror="this.onerror=null; this.src='assets/brand/netvein-logo.svg';">
+        <img src="assets/brand/wordmark.svg" alt="NetVein" style="height: 24px;" onerror="this.onerror=null; this.src='assets/brand/netvein-logo.svg';">
       </a>
       <div class="footer-links">
-        <a href="https://github.com/dongp06/netvein">GitHub Repository</a>
-        <a href="https://www.npmjs.com/package/netvein-mcp">npm Package</a>
-        <a href="https://github.com/dongp06/netvein/blob/main/LICENSE">MIT License</a>
-        <a href="https://github.com/dongp06/netvein/blob/main/docs/TOOLS.md">Tool Documentation</a>
+        <a href="https://github.com/dongp06/netvein" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://www.npmjs.com/package/netvein-mcp" target="_blank" rel="noopener">npm (v0.6.0)</a>
+        <a href="https://github.com/dongp06/netvein/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+        <a href="https://github.com/dongp06/netvein/blob/main/docs/TOOLS.md" target="_blank" rel="noopener">Documentation</a>
       </div>
       <p class="footer-copy">
-        NetVein &copy; 2026 dongp06 · Local-First Chrome CDP &amp; Wire-Level Dynamic Analysis MCP Server.
+        NetVein &copy; 2026 dongp06 &middot; Local-First Chrome CDP &amp; Wire-Level Dynamic Analysis MCP Server.
       </p>
     </div>
   </footer>
 
   <script>
-    const installCommands = {
+    // 1. Install bar tabs
+    const installSnippets = {
       npm: "npm install -g netvein-mcp && netvein install",
       npx: "npx netvein-mcp install",
       sh: "curl -fsSL https://raw.githubusercontent.com/dongp06/netvein/main/install.sh | sh",
       ps1: "irm https://raw.githubusercontent.com/dongp06/netvein/main/install.ps1 | iex"
     };
 
-    function switchInstall(type, el) {
-      document.querySelectorAll('.install-tab').forEach(b => b.classList.remove('active'));
+    function setInstall(key, el) {
+      document.querySelectorAll('.install-bar .tab-btn').forEach(b => b.classList.remove('active'));
       el.classList.add('active');
-      document.getElementById('cmdText').textContent = installCommands[type];
+      document.getElementById('installCmdText').textContent = installSnippets[key];
     }
 
-    function copyInstall() {
-      const text = document.getElementById('cmdText').textContent;
+    function copyInstallCmd(btn) {
+      const text = document.getElementById('installCmdText').textContent;
       navigator.clipboard.writeText(text).then(() => {
-        const label = document.getElementById('copyLabel');
-        const icon = document.getElementById('copyIcon');
-        label.textContent = "Copied!";
-        icon.textContent = "✓";
+        btn.classList.add('copied');
+        const span = btn.querySelector('.btn-text');
+        span.textContent = 'Copied!';
         setTimeout(() => {
-          label.textContent = "Copy";
-          icon.textContent = "📋";
+          btn.classList.remove('copied');
+          span.textContent = 'Copy';
         }, 2000);
       });
     }
 
-    const configs = {
+    // 2. Command Code interactive terminal demos
+    const demos = {
+      wire: [
+        { prompt: "user", text: "netvein install --target all", style: "t-text-white" },
+        { prompt: "netvein", text: "Scanning system for installed AI coding agents...", style: "t-text-dim" },
+        { prompt: "info", text: "✓ Found Claude Code (~/.claude.json) -> configured netvein MCP", style: "t-text-green" },
+        { prompt: "info", text: "✓ Found Cursor (~/.cursor/mcp.json) -> configured netvein MCP", style: "t-text-green" },
+        { prompt: "info", text: "✓ Found Antigravity IDE (~/.gemini/config/mcp_config.json) -> configured", style: "t-text-green" },
+        { prompt: "info", text: "✓ Found Codex CLI (~/.codex/config.toml) -> configured", style: "t-text-green" },
+        { prompt: "status", text: "Chrome CDP ready on 127.0.0.1:9222. All agents successfully wired.", style: "t-text-cyan" }
+      ],
+      breakpoint: [
+        { prompt: "agent", text: "call traffic_breakpoint_set({ pattern: \"/api/v2/auth/sign\", maxHoldMs: 15000 })", style: "t-text-white" },
+        { prompt: "daemon", text: "✓ In-flight breakpoint armed: URL pattern matches /api/v2/auth/sign", style: "t-text-green" },
+        { prompt: "network", text: ">> Incoming POST /api/v2/auth/sign [HELD ON THE WIRE, flow_91a4]", style: "t-text-amber" },
+        { prompt: "agent", text: "call traffic_flow({ id: \"flow_91a4\", part: \"request\" })", style: "t-text-white" },
+        { prompt: "preview", text: "{ headers: { \"X-Signature\": \"b4a0f...\" }, body: { \"user\": \"admin\" } }", style: "t-text-purple" },
+        { prompt: "agent", text: "call traffic_breakpoint_release({ flowId: \"flow_91a4\", action: \"modify\", patch: { headers: { \"X-Signature\": \"patched_hash\" } } })", style: "t-text-white" },
+        { prompt: "daemon", text: "✓ Flow released with mutated headers -> Remote server response: 200 OK (38ms)", style: "t-text-green" }
+      ],
+      crypto: [
+        { prompt: "agent", text: "call detect_crypto({ algorithm: \"HMAC-SHA256\" })", style: "t-text-white" },
+        { prompt: "netvein", text: "Analyzing loaded scripts with Acorn AST parser...", style: "t-text-dim" },
+        { prompt: "ast", text: "Found candidate hashing function: `signPayload(data, secret)` in bundle.min.js:3412", style: "t-text-cyan" },
+        { prompt: "agent", text: "call hook_crypto_all()", style: "t-text-white" },
+        { prompt: "hook", text: "✓ Intercepted window.crypto.subtle.sign: algorithm=HMAC, hash=SHA-256", style: "t-text-green" },
+        { prompt: "hook", text: "Key Material: [0x7b, 0x22, 0x6b, 0x65, ...] | Signature Output: 6d5e12...f8", style: "t-text-purple" }
+      ],
+      stealth: [
+        { prompt: "agent", text: "call classify_anticrawl()", style: "t-text-white" },
+        { prompt: "netvein", text: "Detected bot challenge: Cloudflare Turnstile + Akamai Sensor Data", style: "t-text-amber" },
+        { prompt: "agent", text: "call stealth_enable({ profile: \"full\", seed: \"chrome_win_128\" })", style: "t-text-white" },
+        { prompt: "stealth", text: "✓ Applied seeded WebGL vendor, Canvas noise, AudioContext buffer patches", style: "t-text-green" },
+        { prompt: "stealth", text: "✓ Neutralized 3 anti-debug `debugger;` loops and patched Function.prototype.toString", style: "t-text-green" },
+        { prompt: "probe", text: "Running leak detection suite... Stealth score: 100% (No leaks detected)", style: "t-text-cyan" }
+      ]
+    };
+
+    function showDemo(key, el) {
+      document.querySelectorAll('.terminal-nav-tabs .t-nav-btn').forEach(b => b.classList.remove('active'));
+      el.classList.add('active');
+      const lines = demos[key];
+      const vp = document.getElementById('demoViewport');
+      vp.innerHTML = lines.map(l => `
+        <div class="t-line">
+          <span class="t-prompt">${l.prompt}&gt;</span>
+          <span class="${l.style}">${l.text}</span>
+        </div>
+      `).join('');
+    }
+
+    showDemo('wire', document.querySelector('.terminal-nav-tabs .t-nav-btn'));
+
+    // 3. Searchable Tool Catalog
+    const sampleTools = [
+      { name: "traffic_breakpoint_set", domain: "traffic", desc: "Hold requests matching regex pattern on the wire with auto-pass timeout." },
+      { name: "traffic_breakpoint_release", domain: "traffic", desc: "Release held flow: pass, modify (headers/body), or drop completely." },
+      { name: "traffic_flows", domain: "traffic", desc: "Query wire flows ring buffer with host, status, method, and latency filters." },
+      { name: "traffic_flow", domain: "traffic", desc: "Curated headers and pretty-printed body for one flow; request/response/ws." },
+      { name: "traffic_replay", domain: "traffic", desc: "Resend flow through daemon proxy with payload overrides and dot-path diff." },
+      { name: "traffic_export", domain: "traffic", desc: "Export captured wire traffic as standard HAR 1.2 or streaming JSONL." },
+      { name: "traffic_status", domain: "traffic", desc: "Inspect loopback traffic daemon state, port binding, and buffer counters." },
+      { name: "traffic_curl", domain: "traffic", desc: "Reconstruct ready-to-run shell-quoted cURL command from any captured flow." },
+      { name: "detect_crypto", domain: "crypto", desc: "AST heuristic search for cryptographic constants, s-boxes, and hash algorithms." },
+      { name: "find_crypto_candidates", domain: "crypto", desc: "Score candidate JavaScript signing functions based on AST entropy and bitwise ops." },
+      { name: "hook_crypto_all", domain: "crypto", desc: "Hook window.crypto.subtle methods to capture plaintext keys, IVs, and digests." },
+      { name: "ast_search", domain: "crypto", desc: "Query script syntax trees with AST selectors to find specific signatures." },
+      { name: "stealth_enable", domain: "stealth", desc: "Enable seeded fingerprint spoofing profile for WebGL, Audio, Canvas, and platform." },
+      { name: "stealth_status", domain: "stealth", desc: "Report current active stealth profile, seed entropy, and patch registrations." },
+      { name: "classify_anticrawl", domain: "stealth", desc: "Identify active bot defenses: Cloudflare, Akamai, DataDome, GeeTest." },
+      { name: "captcha_detect", domain: "stealth", desc: "Detect Turnstile, reCAPTCHA, and hCaptcha challenge widgets on page." },
+      { name: "anti_debug_bypass", domain: "stealth", desc: "Hot-patch timer-based and endless Function constructor `debugger;` loops." },
+      { name: "navigate", domain: "cdp", desc: "Navigate browser session to URL with timeout and domcontentloaded/load condition." },
+      { name: "page_snapshot", domain: "cdp", desc: "Capture token-efficient pruned semantic accessibility snapshot of current view." },
+      { name: "click_selector", domain: "cdp", desc: "Trigger semantic click with viewport coordinate calculation and scroll-into-view." },
+      { name: "wait_for_selector", domain: "cdp", desc: "Wait until DOM element matching CSS selector resolves with timeout guard." },
+      { name: "get_cookies", domain: "cdp", desc: "Extract session cookies with domain, path, and security origin filtering." },
+      { name: "set_cookie", domain: "cdp", desc: "Inject session cookie directly into Chrome cookie jar with SameSite attributes." },
+      { name: "eval_jsrpc", domain: "runtime", desc: "Execute function inside page context and return serialized results." },
+      { name: "install_hook", domain: "runtime", desc: "Hook window or object prototype methods with custom instrumentation wrappers." },
+      { name: "taint_track", domain: "runtime", desc: "Track data flow and parameter propagation from source to network sinks." },
+      { name: "timeline_recorder", domain: "runtime", desc: "Chronological event timeline recorder for user interactions and network calls." },
+      { name: "netvein_init", domain: "workspace", desc: "Initialize .netvein/ skeleton (config.json, captures/, notes/) in project root." },
+      { name: "netvein_project", domain: "workspace", desc: "Inspect discovered .netvein workspace status, applied configs, and JSONL streams." },
+      { name: "check_for_update", domain: "workspace", desc: "Check git remote head and release tags for netvein updates without throwing." }
+    ];
+
+    let currentDomain = 'all';
+
+    function renderTools(list) {
+      const grid = document.getElementById('toolsGrid');
+      grid.innerHTML = list.map(t => `
+        <div class="tool-item-card">
+          <div class="t-name">${t.name}</div>
+          <div class="t-domain">${t.domain.toUpperCase()}</div>
+          <div class="t-desc">${t.desc}</div>
+        </div>
+      `).join('');
+    }
+
+    function filterTools() {
+      const query = document.getElementById('toolSearchInput').value.toLowerCase().trim();
+      const filtered = sampleTools.filter(t => {
+        const matchesDomain = (currentDomain === 'all' || t.domain === currentDomain);
+        const matchesQuery = !query || t.name.toLowerCase().includes(query) || t.desc.toLowerCase().includes(query) || t.domain.toLowerCase().includes(query);
+        return matchesDomain && matchesQuery;
+      });
+      renderTools(filtered);
+    }
+
+    function selectDomain(domain, el) {
+      document.querySelectorAll('.filter-chips .filter-chip').forEach(b => b.classList.remove('active'));
+      el.classList.add('active');
+      currentDomain = domain;
+      filterTools();
+    }
+
+    renderTools(sampleTools);
+
+    // 4. Agent config snippets
+    const agentConfigs = {
       claude: `// ~/.claude.json\n{\n  "mcpServers": {\n    "netvein": {\n      "command": "netvein",\n      "args": ["serve", "--mcp"]\n    }\n  }\n}`,
       cursor: `// ~/.cursor/mcp.json\n{\n  "mcpServers": {\n    "netvein": {\n      "command": "netvein",\n      "args": ["serve", "--mcp"]\n    }\n  }\n}`,
       antigravity: `// ~/.gemini/config/mcp_config.json\n{\n  "mcpServers": {\n    "netvein": {\n      "command": "netvein",\n      "args": ["serve", "--mcp"],\n      "env": {\n        "CDP_HOST": "127.0.0.1",\n        "CDP_PORT": "9222"\n      }\n    }\n  }\n}`,
+      codex: `# ~/.codex/config.toml\n[mcp_servers.netvein]\ncommand = "netvein"\nargs = ["serve", "--mcp"]\nstartup_timeout_sec = 60\n[mcp_servers.netvein.env]\nCDP_HOST = "127.0.0.1"\nCDP_PORT = "9222"`,
       npx: `// Zero-install with npx\n{\n  "mcpServers": {\n    "netvein": {\n      "command": "npx",\n      "args": ["-y", "netvein-mcp", "serve", "--mcp"]\n    }\n  }\n}`
     };
 
-    function switchConfig(type, el) {
-      el.parentElement.querySelectorAll('.install-tab').forEach(b => b.classList.remove('active'));
+    function setConfig(key, el) {
+      document.querySelectorAll('.config-box .tab-btn').forEach(b => b.classList.remove('active'));
       el.classList.add('active');
-      document.getElementById('configCode').textContent = configs[type];
+      document.getElementById('configDisplay').textContent = agentConfigs[key];
     }
   </script>
 </body>
