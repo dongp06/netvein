@@ -198,7 +198,7 @@ by netvein afterwards route through the proxy automatically.
 | `traffic_curl` | `id` | Ready-to-run, shell-quoted curl reconstructed from a captured flow. |
 | `traffic_breakpoint_set` | `pattern`, `maxHoldMs?` | Hold flows matching a URL regex in flight; auto-passes at `maxHoldMs`. Returns the breakpoint table. |
 | `traffic_breakpoint_release` | `flowId`, `action?`, `patch?` | Release a held flow: `pass`, `modify` (url/method/headers/body), or `drop`. |
-| `traffic_replay` | `id`, `overrides?`, `compare?` | Resend a captured request outside page context; optional path-level diff vs the original response. |
+| `traffic_replay` | `id`, `overrides?`, `compare?` | Resend a captured request through the daemon's proxy (no page context), so the replay itself appears in `traffic_flows`; optional path-level diff vs the original. |
 | `traffic_export` | `format?`, `path?` | Write flow history as HAR 1.2 or JSONL; returns path + count. |
 
 ---

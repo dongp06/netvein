@@ -1756,7 +1756,7 @@ export function createServer(session: CdpSession): McpServer {
     {
       title: "Replay a captured flow outside the page",
       description:
-        "Resend a captured request from the daemon itself (no browser, no page context), with optional url/method/header/body overrides. compare=true diffs the replay against the original flow response. TLS verification is intentionally off for replay targets — RE servers often present certs the loopback CA cannot verify.",
+        "Resend a captured request through the daemon's own proxy (no browser, no page context), so replays land in the flow store and honor --allow-hosts, with optional url/method/header/body overrides. compare=true diffs the replay against the original flow response. TLS verification is intentionally off for replay targets — RE servers often present certs the loopback CA cannot verify.",
       inputSchema: {
         id: z.string().min(1).describe("Flow id to replay."),
         overrides: z

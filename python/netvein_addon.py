@@ -69,10 +69,11 @@ def detail(flow):
         } if flow.response else None,
     }
     if flow.websocket:
+        # mitmproxy 11: WebSocketData.messages, content is bytes.
         out["wsFrames"] = [
-            {"dir": "up" if f.from_client else "down", "ts": iso(f.timestamp),
-             "payload": (f.content or "")[:512]}
-            for f in flow.websocket.frames[:200]
+            {"dir": "up" if m.from_client else "down", "ts": iso(m.timestamp),
+             "payload": (m.content.decode("utf-8", "replace") if m.content else "")[:512]}
+            for m in flow.websocket.messages[:200]
         ]
     return out
 
@@ -292,8 +293,16 @@ class Netvein:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
+            # Spec §1: replay goes through the proxy so it lands in the flow
+            # store and honors --allow-hosts. No proxyPort => direct.
+            handlers = []
+            proxy_port = args.get("proxyPort")
+            if proxy_port:
+                handlers.append(urllib.request.ProxyHandler(
+                    {"http": f"http://127.0.0.1:{proxy_port}", "https": f"http://127.0.0.1:{proxy_port}"}))
+            opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx), *handlers)
             try:
-                with urllib.request.urlopen(request, timeout=15, context=ctx) as resp:
+                with opener.open(request, timeout=15) as resp:
                     return {"status": resp.status,
                             "headers": {k.lower(): v for k, v in resp.headers.items()},
                             "body": resp.read(MAX_BODY + 1)[:MAX_BODY].decode("utf-8", "replace")}
@@ -333,17 +342,27 @@ class Netvein:
                     },
                     "cache": {}, "timings": {"send": 0, "wait": s["durationMs"], "receive": 0},
                 })
-            return {"log": {"version": "1.2", "creator": {"name": "netvein-mcp", "version": "0.5.0"}, "entries": entries}}
+            return {"log": {"version": "1.2", "creator": {"name": "netvein-mcp", "version": env("NETVEIN_VERSION", "unknown")}, "entries": entries}}
 
-        with open(path, "w") as fh:
-            if fmt == "jsonl":
-                for f in self.flows.values():
-                    fh.write(json.dumps(detail(f)) + "\n")
-            elif fmt == "har":
-                json.dump(build_har(), fh)
-            else:
-                raise ValueError("unknown export format")
-        return {"path": path, "count": len(self.flows)}
+        lines = []
+        skipped = 0
+        if fmt == "jsonl":
+            for f in self.flows.values():
+                try:
+                    lines.append(json.dumps(detail(f)))
+                except Exception:
+                    skipped += 1
+            with open(path, "w") as fh:
+                fh.write("\n".join(lines) + ("\n" if lines else ""))
+        elif fmt == "har":
+            # serialize fully before touching disk: a bad flow must not leave a
+            # partial file behind.
+            payload = json.dumps(build_har())
+            with open(path, "w") as fh:
+                fh.write(payload)
+        else:
+            raise ValueError("unknown export format")
+        return {"path": path, "count": len(self.flows) - skipped, "skipped": skipped}
 
     async def _cmd_stats(self, args):
         held = list(self.hold_events.keys())

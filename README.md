@@ -6,7 +6,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-stdio%201.31-6E56CF)](https://modelcontextprotocol.io/)
 [![CDP](https://img.shields.io/badge/Chrome-CDP-4285F4?logo=googlechrome&logoColor=white)](https://chromedevtools.github.io/devtools-protocol/)
-[![Tests](https://img.shields.io/badge/Tests-188%2F188%20Passing-brightgreen)](test/index.test.ts)
+[![Tests](https://img.shields.io/badge/Tests-192%2F192%20Passing-brightgreen)](test/index.test.ts)
 [![Tools](https://img.shields.io/badge/Tools-112%20Available-orange)](#tool-catalog)
 
 ---
@@ -89,7 +89,7 @@ per-context proxy binding, and captcha detection. Captcha solving is out of scop
 #### Manual Build
 ```bash
 npm install
-npm test       # Runs the 188 automated unit & integration tests
+npm test       # Runs the 192 automated unit & integration tests
 npm run build  # Compiles to dist/index.js
 ```
 

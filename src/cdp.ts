@@ -719,7 +719,7 @@ export class CdpSession {
   }
 
   async trafficReplay(id: string, overrides: { url?: string; method?: string; headers?: Record<string, string>; body?: string }, compare = true): Promise<Record<string, unknown>> {
-    const reply = await this.mitm.command("replay", { flowId: id, overrides });
+    const reply = await this.mitm.command("replay", { flowId: id, overrides, proxyPort: this.mitm.endpoint()?.proxyPort });
     const replay = reply.replay as ReplayResponse;
     const out: Record<string, unknown> = { id, replay };
     if (compare) {

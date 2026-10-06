@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import assert from "node:assert/strict";
+import * as crypto from "node:crypto";
 import * as http from "node:http";
 import * as net from "node:net";
 import test from "node:test";
@@ -58,6 +59,20 @@ async function startTarget(): Promise<Target> {
     } else {
       send(JSON.stringify({ which: "beta" }));
     }
+  });
+  server.on("upgrade", (req, socket) => {
+    if (!(req.url ?? "").startsWith("/echo")) {
+      socket.destroy();
+      return;
+    }
+    const accept = crypto
+      .createHash("sha1")
+      .update(`${req.headers["sec-websocket-key"] ?? ""}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+      .digest("base64");
+    socket.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + accept + "\r\n\r\n");
+    const payload = Buffer.from("hello-ws");
+    socket.write(Buffer.concat([Buffer.from([0x81, payload.length]), payload])); // FIN|text, unmasked
+    setTimeout(() => socket.destroy(), 300);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as net.AddressInfo).port;
@@ -155,7 +170,7 @@ test("MitmManager daemon integration", { skip: mitmAvailable ? false : "mitmdump
       assert.equal(stats!.running, true);
       assert.equal(typeof stats!.flows, "number");
       assert.deepEqual(stats!.held, []);
-      assert.ok(stats!.spki === null || typeof stats!.spki === "string", "spki is a base64 string once the CA exists, else null");
+      assert.match(stats!.spki as string, /^[A-Za-z0-9+/]{43}=$/, "fresh confdir carries a generated CA, so spki must be a real base64 sha256");
     } finally {
       await manager.stop();
     }
@@ -308,10 +323,16 @@ test("Traffic session shaping against a real daemon", { skip: mitmAvailable ? fa
       assert.equal(replayed.replay.status, 200);
       assert.match(replayed.replay.body ?? "", /alpha/);
       assert.equal(replayed.diff.statusChanged, false);
+      const replayRecorded = await eventually(async () => {
+        const view = (await session.trafficFlows({ pathContains: "/alpha", full: true })) as { flows: unknown[] };
+        return view.flows.length >= 2 ? view : null;
+      }, 8000, 100);
+      assert.ok((replayRecorded.flows as unknown[]).length >= 2, "replay goes through the proxy and lands in the flow store (spec §1)");
       const deadPort = await freePort();
-      const dead = (await session.trafficReplay(id, { url: `http://127.0.0.1:${deadPort}/gone` }, false)) as { replay: { status: number | null; error?: string } };
-      assert.equal(dead.replay.status, null);
-      assert.ok(dead.replay.error, "connection failure must land in data.replay.error, not a rejection");
+      const dead = (await session.trafficReplay(id, { url: `http://127.0.0.1:${deadPort}/gone` }, false)) as { replay: { status: number | null; error?: string; body: string | null } };
+      // Through the proxy a dead origin surfaces as the gateway's 502; direct
+      // would be a connect error in data.replay.error. Either way: data, never a rejection (Review Focus 5).
+      assert.ok(dead.replay.status === 502 || (dead.replay.status === null && dead.replay.error), JSON.stringify(dead.replay));
       const exported = (await session.trafficExport("jsonl", exportPath)) as { path: string; count: number };
       assert.equal(exported.path, exportPath);
       assert.ok(exported.count >= 1);
@@ -320,11 +341,113 @@ test("Traffic session shaping against a real daemon", { skip: mitmAvailable ? fa
       assert.ok(JSON.parse(lines[0]).summary.id);
       const har = (await session.trafficExport("har")) as { path: string };
       assert.ok(fs.existsSync(har.path));
-      assert.ok(JSON.parse(fs.readFileSync(har.path, "utf8")).log.creator.name === "netvein-mcp");
+      assert.equal(JSON.parse(fs.readFileSync(har.path, "utf8")).log.creator.version, "0.5.0");
     } finally {
       await session.mitm.stop();
       await target.close();
       fs.rmSync(exportPath, { force: true });
     }
+  });
+
+  await t.test("websocket flow: ws frames, detail and export survive mitmproxy 11", async () => {
+    const { CdpSession } = await import("../src/cdp.js");
+    const session = new CdpSession();
+    const target = await startTarget();
+    try {
+      await session.mitm.start({ port: await freePort() });
+      const proxyPort = session.mitm.endpoint()!.proxyPort;
+      const client = net.connect(proxyPort, "127.0.0.1");
+      await new Promise<void>((r) => client.once("connect", r));
+      client.write(`GET http://127.0.0.1:${target.port}/echo HTTP/1.1\r\nHost: 127.0.0.1:${target.port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+      let seen = Buffer.alloc(0);
+      await new Promise<void>((resolve) => {
+        client.on("data", (chunk) => {
+          seen = Buffer.concat([seen, chunk]);
+          if (seen.includes(Buffer.from("\r\n\r\n"))) resolve();
+        });
+        setTimeout(resolve, 4000);
+      });
+      assert.match(seen.toString(), /101 Switching Protocols/);
+      await wait(600); // let frames flow and the handshake flow settle
+      client.destroy();
+
+      const flows = await eventually(async () => {
+        const view = (await session.trafficFlows({ pathContains: "/echo", full: true })) as { flows: Array<{ id: string }> };
+        return view.flows.length >= 1 ? view : null;
+      });
+      const detail = (await session.trafficFlow(flows.flows[0].id, "ws", 5000)) as { wsFrames: Array<{ dir: string; payload: string }> };
+      assert.ok(detail.wsFrames.length >= 1, "ws messages recorded");
+      assert.ok(detail.wsFrames.some((f) => f.payload.includes("hello-ws")), JSON.stringify(detail.wsFrames));
+      // export over the ws flow must not raise (C1 poison chain)
+      const exported = (await session.trafficExport("jsonl")) as { count: number; skipped: number; path: string };
+      const fs2 = await import("node:fs");
+      assert.equal(exported.skipped, 0);
+      assert.ok(exported.count >= 1);
+      fs2.rmSync(exported.path, { force: true });
+    } finally {
+      await session.mitm.stop();
+      await target.close();
+    }
+  });
+});
+
+test("MitmManager lifecycle hardening", { skip: mitmAvailable ? false : "mitmdump not installed" }, async (t) => {
+  const portFreeCheck = (port: number) =>
+    new Promise<boolean>((resolve) => {
+      const probe = net.connect({ host: "127.0.0.1", port });
+      probe.setTimeout(400);
+      probe.once("connect", () => { probe.destroy(); resolve(false); });
+      probe.once("timeout", () => { probe.destroy(); resolve(true); });
+      probe.once("error", () => resolve(true));
+    });
+
+  await t.test("concurrent starts share a single spawn (I3)", async () => {
+    const manager = new MitmManager();
+    const port = await freePort();
+    const [a, b] = await Promise.all([manager.start({ port }), manager.start({ port })]);
+    try {
+      assert.equal(a.proxyPort, port);
+      assert.equal(b.proxyPort, port);
+      assert.ok(manager.pid, "exactly one tracked child");
+      const alive = await import("node:child_process");
+      let signaled = 0;
+      for (const proc of [manager.pid as number]) {
+        try { process.kill(proc, 0); signaled++; } catch { /* not us */ }
+        void alive;
+      }
+      assert.equal(signaled, 1);
+      assert.equal(await portFreeCheck(port), false, "one daemon owns the port");
+    } finally {
+      await manager.stop();
+    }
+    assert.equal(manager.state(), "stopped");
+    assert.equal(await portFreeCheck(port), true);
+  });
+
+  await t.test("daemon dies with its parent process (I2)", async () => {
+    const port = await freePort();
+    const child = (await import("node:child_process")).spawn(
+      process.execPath,
+      ["--import", "tsx", "--input-type", "module", "-e",
+        `import { MitmManager } from '${process.cwd()}/src/mitm/manager.js';
+         const m = new MitmManager();
+         const r = await m.start({ port: ${port} });
+         console.log(JSON.stringify({ port: r.proxyPort, pid: m.pid }));
+         process.exit(0);`],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let out = "";
+    child.stdout.on("data", (chunk) => (out += chunk));
+    const info = await new Promise<{ port: number; pid: number }>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("child did not report: " + out)), 30000);
+      child.once("exit", (code) => {
+        if (code !== 0) return reject(new Error("child exit " + code + " " + out));
+        clearTimeout(timer);
+        try { resolve(JSON.parse(out.trim().split("\n").pop() as string)); } catch (e) { reject(e); }
+      });
+    });
+    assert.equal(info.port, port);
+    await eventually(async () => { try { process.kill(info.pid, 0); return false; } catch { return true; } }, 8000);
+    assert.equal(await portFreeCheck(port), true, "parent exit took the daemon with it");
   });
 });

@@ -145,7 +145,7 @@ the model sees is shaped in Node (`src/mitm/store.ts`); the daemon only captures
 replays and exports, because the flow objects live there.
 
 That split buys what CDP cannot: capture across all tabs and non-browser clients, a
-history that survives detach, out-of-page replay with overrides, in-flight holds
+history that survives detach, out-of-page replay routed back through the proxy so replays are themselves captured, in-flight holds
 (`traffic_breakpoint_set`) that auto-pass after `maxHoldMs` rather than wedging the
 client, and HAR/JSONL export for Burp/Charles. Browsers launched by netvein pick up
 `--proxy-server` plus an `--ignore-certificate-errors-spki-list` pin automatically; an

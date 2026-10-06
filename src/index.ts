@@ -87,6 +87,10 @@ async function main(): Promise<void> {
       await session.disconnect();
     } catch (_) {}
     try {
+      // The traffic daemon is netvein-owned: it must not outlive us.
+      await session.mitm.stop();
+    } catch (_) {}
+    try {
       await server.close();
     } catch (_) {}
     process.exit(0);

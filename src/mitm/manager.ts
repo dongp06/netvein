@@ -6,6 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ErrorCode } from "../errors.js";
+import { VERSION } from "../version.js";
 
 export interface StartOptions {
   port?: number;
@@ -38,7 +39,7 @@ function addonPath(): string {
 /** Chrome args that route a netvein-launched browser through the daemon. */
 export function buildProxyArgs(endpoint: Endpoint | null, extraArgs: string[] = []): string[] {
   const args = [...extraArgs];
-  if (endpoint) {
+  if (endpoint && endpoint.attachBrowser) {
     args.push(`--proxy-server=127.0.0.1:${endpoint.proxyPort}`);
     if (endpoint.spki) args.push(`--ignore-certificate-errors-spki-list=${endpoint.spki}`);
   }
@@ -102,6 +103,8 @@ export class MitmManager {
   private lastStats: Stats | null = null;
   private died = false;
   private stopping = false;
+  private starting: Promise<{ proxyPort: number; spki: string | null; confDir: string; alreadyRunning: boolean }> | null = null;
+  private exitHooked = false;
 
   get pid(): number | undefined {
     return this.proc?.pid;
@@ -126,6 +129,15 @@ export class MitmManager {
     if (this.running()) {
       return { proxyPort: this.info!.proxyPort, spki: this.info!.spki, confDir: this.info!.confDir, alreadyRunning: true };
     }
+    // Concurrent traffic_start calls must share one spawn, not race two daemons.
+    if (this.starting) return this.starting;
+    this.starting = this.startInner(options).finally(() => {
+      this.starting = null;
+    });
+    return this.starting;
+  }
+
+  private async startInner(options: StartOptions): Promise<{ proxyPort: number; spki: string | null; confDir: string; alreadyRunning: boolean }> {
     if (!fs.existsSync(addonPath())) {
       throw new MitmError("ERR_MITM_UNAVAILABLE", `Addon missing at ${addonPath()}.`);
     }
@@ -147,7 +159,7 @@ export class MitmManager {
     }
 
     const proc = spawn(binary, args, {
-      env: { ...process.env, NETVEIN_CONFDIR: confDir, NETVEIN_CTL_PORT: "0", NETVEIN_PORTFILE: portFile },
+      env: { ...process.env, NETVEIN_CONFDIR: confDir, NETVEIN_CTL_PORT: "0", NETVEIN_PORTFILE: portFile, NETVEIN_VERSION: VERSION },
       stdio: ["ignore", "pipe", "pipe"],
     });
     this.proc = proc;
@@ -166,6 +178,7 @@ export class MitmManager {
     });
     proc.stderr.on("data", () => {}); // drained; startup failure detail surfaces via the portfile timeout
     proc.stdout.on("data", () => {});
+    this.ensureExitHook();
 
     try {
       const ctlPort = await this.waitForPortFile(portFile, 15000);
@@ -256,14 +269,22 @@ export class MitmManager {
     const id = this.nextId++;
     const line = JSON.stringify({ id, cmd, args }) + "\n";
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const settle = (fn: () => void) => {
+        clearTimeout(timer);
+        fn();
+      };
+      this.pending.set(id, {
+        resolve: (v) => settle(() => resolve(v)),
+        reject: (e) => settle(() => reject(e)),
+      });
       this.ctlSocket!.write(line);
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
           reject(new MitmError("ERR_MITM_LOST", `Command ${cmd} timed out after 20s.`));
         }
       }, 20000);
+      timer.unref?.();
     });
   }
 
@@ -299,12 +320,46 @@ export class MitmManager {
     } catch {
       // the daemon exits as part of stop; a lost socket is expected
     }
+    await this.waitForExit(3000);
+    if (this.proc) {
+      this.proc.kill("SIGKILL");
+      await this.waitForExit(2000);
+    }
+    if (this.proc === null) return; // exit handler already ran and settled state
+    // Exit event somehow missing: settle state by hand.
     this.info = null;
     this.died = false;
-    await new Promise((r) => setTimeout(r, 300));
-    this.proc?.kill("SIGKILL");
-    this.proc = null;
-    this.ctlSocket = null;
     this.stopping = false;
+    this.ctlSocket = null;
+  }
+
+  /**
+   * A netvein-owned daemon must not outlive netvein: hard-kill the live child
+   * when this process goes away (crash safety net; index.ts shutdown() covers
+   * the clean path). Registered once per manager, reads the current proc.
+   */
+  private ensureExitHook(): void {
+    if (this.exitHooked) return;
+    this.exitHooked = true;
+    process.once("exit", () => {
+      try {
+        this.proc?.kill("SIGKILL");
+      } catch {
+        // already gone
+      }
+    });
+  }
+
+  private waitForExit(timeoutMs: number): Promise<void> {
+    const proc = this.proc;
+    if (!proc) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(done, timeoutMs);
+      proc.once("exit", done);
+    });
   }
 }

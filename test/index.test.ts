@@ -19,7 +19,7 @@ import { activePatchIds, buildStealthScript, createSeededPrng, seedFromName } fr
 import { checkForUpdate, classifyUpdate, compareVersions, isCheckDue, parseVersion } from "../src/updater.js";
 import { beautifyBody, buildCurl, diffReplay, filterFlows, formatFlowList, stripHeaders, type FlowDetail, type FlowSummary } from "../src/mitm/store.js";
 import { buildProxyArgs, MitmError } from "../src/mitm/manager.js";
-import { shapeFlowDetail, type FlowDetail } from "../src/mitm/store.js";
+import { shapeFlowDetail } from "../src/mitm/store.js";
 import { envelopeFromThrow } from "../src/errors.js";
 
 test("Server & Tool Registration", async (t) => {
@@ -1142,6 +1142,7 @@ test("Traffic Store shaping II", async (t) => {
 test("Traffic Session Wiring", async (t) => {
   await t.test("buildProxyArgs merges daemon endpoint into extra args", () => {
     assert.deepEqual(buildProxyArgs(null, ["--headless"]), ["--headless"]);
+    assert.deepEqual(buildProxyArgs({ proxyPort: 8080, spki: "abc", attachBrowser: false }, ["--headless"]), ["--headless"]);
     assert.deepEqual(buildProxyArgs({ proxyPort: 8080, spki: "abc", attachBrowser: true }), [
       "--proxy-server=127.0.0.1:8080",
       "--ignore-certificate-errors-spki-list=abc",

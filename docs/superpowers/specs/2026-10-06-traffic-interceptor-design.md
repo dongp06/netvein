@@ -60,10 +60,10 @@ a persistent on-disk flow database (store is daemon-RAM + export).
                           └───────────────────────┘
 ```
 
-- **`python/netvein_addon.py`** — mitmproxy addon run inside mitmdump. Responsibilities: capture every flow + websocket frame into a RAM ring; serve a line-delimited JSON control socket (`list`, `get`, `filter`, `breakpoint set/list/release`, `replay`, `export`, `stats`); hold flows matching breakpoints and push events. It is a thin servant; all logic and shaping lives in Node.
+- **`python/netvein_addon.py`** — mitmproxy addon run inside mitmdump. Responsibilities: capture every flow + websocket frame into a RAM ring; serve a line-delimited JSON control socket (`list`, `get`, `filter`, `breakpoint set/list/release`, `replay`, `export`, `stats`); hold flows matching breakpoints; held-flow notification is **poll-based** (stats/list), not pushed — recorded deviation, see plan Task 5. It is a thin servant; flow capture/hold/replay/export live in the daemon while list shaping lives in Node (`src/mitm/store.ts`) — the two filter implementations are kept semantically equal by tests.
 - **`src/mitm/manager.ts`** — spawn/stop/reconcile of `mitmdump --allow-hosts ... -s addon.py`, control-socket client, daemon health, CA bookkeeping. Refuses to run if `mitmdump` is absent, with an actionable error.
 - **`src/mitm/store.ts`** — pure functions: filter DSL, header-strip, beautify, cURL reconstruction, HAR/JSONL serialization. Unit-testable without python or a browser.
-- CDP integration: when the daemon is up and `attachBrowser` is requested, `launcher.ts` appends `--proxy-server=127.0.0.1:<port>` and (Linux) `--ignore-certificate-errors-spki-list=<mitm-spki>` **only to netvein-launched browsers**. User-launched browsers are reported as needing manual proxy config; the server never rewrites a running Chrome's flags.
+- CDP integration: when the daemon is up and `attachBrowser` is requested, `launcher.ts` appends `--proxy-server=127.0.0.1:<port>` and `--ignore-certificate-errors-spki-list=<mitm-spki>` (emitted on all platforms; the flag is a Chromium-wide capability) **only to netvein-launched browsers**. User-launched browsers are reported as needing manual proxy config; the server never rewrites a running Chrome's flags.
 
 ### Trust model (stated plainly)
 
