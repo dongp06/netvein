@@ -50,9 +50,9 @@ test("Server & Tool Registration", async (t) => {
 
     // Verify resources registered by URI
     const resources = Object.keys((server as any)._registeredResources || {});
-    assert.ok(resources.includes("reverse://session/status"), "Missing session-status resource");
-    assert.ok(resources.includes("reverse://session/console"), "Missing console-logs resource");
-    assert.ok(resources.includes("reverse://session/timeline"), "Missing timeline-events resource");
+    assert.ok(resources.includes("netvein://session/status"), "Missing session-status resource");
+    assert.ok(resources.includes("netvein://session/console"), "Missing console-logs resource");
+    assert.ok(resources.includes("netvein://session/timeline"), "Missing timeline-events resource");
 
     // Verify prompts registered
     const prompts = Object.keys((server as any)._registeredPrompts || {});
@@ -949,6 +949,70 @@ test("Update Check", async (t) => {
     const server = createServer(new CdpSession());
     const tools = Object.keys((server as any)._registeredTools || {});
     assert.ok(tools.includes("check_for_update"));
+  });
+});
+
+test("Netvein Rename", async (t) => {
+  await t.test("package identity is netvein-mcp with a compat bin alias", () => {
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+    assert.equal(pkg.name, "netvein-mcp");
+    assert.equal(pkg.version, "0.4.0");
+    assert.equal(pkg.bin["netvein-mcp"], "./dist/index.js");
+    assert.equal(pkg.bin["reverse-engineering-mcp"], "./dist/index.js");
+  });
+
+  await t.test("single version source: VERSION matches package.json", async () => {
+    const { VERSION } = await import("../src/version.js");
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+    assert.equal(VERSION, pkg.version);
+  });
+
+  await t.test("MCP handshake identifies as netvein-mcp 0.4.0", () => {
+    const server = createServer(new CdpSession());
+    const info = (server as any).server?._serverInfo;
+    assert.equal(info.name, "netvein-mcp");
+    assert.equal(info.version, "0.4.0");
+  });
+
+  await t.test("default repo URL points at the renamed repository", async () => {
+    const m = await import("../src/updater.js");
+    assert.equal(m.DEFAULT_REPO_URL, "https://github.com/dongp06/netvein-mcp");
+  });
+
+  await t.test("NETVEIN_UPDATE_CHECK disables the check", async () => {
+    const m = await import("../src/updater.js");
+    assert.equal(m.isUpdateCheckEnabled({ NETVEIN_UPDATE_CHECK: "0" }), false);
+    assert.equal(m.isUpdateCheckEnabled({}), true);
+  });
+
+  await t.test("deprecated REVERSE_MCP_UPDATE_CHECK still disables, with a one-time warning", async () => {
+    const m = await import("../src/updater.js");
+    const warnings: string[] = [];
+    const original = console.error;
+    console.error = (line?: unknown) => {
+      warnings.push(String(line));
+    };
+    try {
+      assert.equal(m.isUpdateCheckEnabled({ REVERSE_MCP_UPDATE_CHECK: "0" }), false);
+      assert.equal(m.isUpdateCheckEnabled({ REVERSE_MCP_UPDATE_CHECK: "0" }), false);
+      assert.equal(warnings.length, 1, `expected exactly one deprecation warning, got ${warnings.length}`);
+      assert.ok(warnings[0].includes("NETVEIN_UPDATE_CHECK"), "warning should name the replacement");
+    } finally {
+      console.error = original;
+    }
+  });
+
+  await t.test("NETVEIN_UPDATE_INTERVAL_HOURS wins over the deprecated name", async () => {
+    const m = await import("../src/updater.js");
+    assert.equal(m.updateIntervalMs({ NETVEIN_UPDATE_INTERVAL_HOURS: "6" }), 6 * 3600_000);
+    assert.equal(m.updateIntervalMs({ REVERSE_MCP_UPDATE_INTERVAL_HOURS: "3" }), 3 * 3600_000);
+  });
+
+  await t.test("resource URIs moved to the netvein scheme", () => {
+    const server = createServer(new CdpSession());
+    const resources = Object.keys((server as any)._registeredResources || {});
+    assert.ok(resources.includes("netvein://session/status"), `got ${resources.join(", ")}`);
+    assert.equal(resources.includes("reverse://session/status"), false);
   });
 });
 

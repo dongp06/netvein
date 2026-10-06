@@ -140,7 +140,7 @@ export async function launchBrowser(options: LaunchOptions = {}): Promise<Launch
   }
 
   // 3. Prepare dedicated user profile directory
-  const userDataDir = options.userDataDir || path.join(os.tmpdir(), "reverse-engineering-browser-profile");
+  const userDataDir = options.userDataDir || path.join(os.tmpdir(), "netvein-browser-profile");
   if (!fs.existsSync(userDataDir)) {
     fs.mkdirSync(userDataDir, { recursive: true });
   }

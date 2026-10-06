@@ -51,7 +51,7 @@ export interface UpdateDeps {
 }
 
 export const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000;
-export const DEFAULT_REPO_URL = "https://github.com/dongp06/reverse-engineering-mcp";
+export const DEFAULT_REPO_URL = "https://github.com/dongp06/netvein-mcp";
 
 /** Parse `v0.4.0`, `0.4.0` or `1.2` into a comparable triple. Null for anything else. */
 export function parseVersion(tag: string): [number, number, number] | null {
@@ -204,7 +204,7 @@ export function runGitLsRemote(repoUrl: string, timeoutMs = 3000): Promise<strin
 }
 
 export function defaultCachePath(): string {
-  return path.join(os.tmpdir(), "reverse-engineering-mcp-update-check.json");
+  return path.join(os.tmpdir(), "netvein-mcp-update-check.json");
 }
 
 /** The checkout this module was loaded from, not the client's cwd. */
@@ -246,18 +246,37 @@ export function readLocalHeadGit(cwd = packageRoot(), timeoutMs = 3000): Promise
 }
 
 export function defaultRemoteBranch(env: NodeJS.ProcessEnv = process.env): string {
-  const configured = env.REVERSE_MCP_UPDATE_BRANCH?.trim();
+  const configured = readEnvWithFallback(env, "NETVEIN_UPDATE_BRANCH", "REVERSE_MCP_UPDATE_BRANCH")?.trim();
   return configured && configured.length > 0 ? configured : "main";
 }
 
+const deprecatedEnvWarned = new Set<string>();
+
+/**
+ * Read NETVEIN_* first, falling back to the pre-rename REVERSE_MCP_* names. The
+ * deprecated read warns once per variable, to stderr only — stdout is the
+ * JSON-RPC channel.
+ */
+function readEnvWithFallback(env: NodeJS.ProcessEnv, newName: string, oldName: string): string | undefined {
+  if (env[newName] !== undefined) return env[newName];
+  if (env[oldName] !== undefined) {
+    if (!deprecatedEnvWarned.has(oldName)) {
+      deprecatedEnvWarned.add(oldName);
+      console.error(`[netvein-mcp] ${oldName} is deprecated; use ${newName} instead. Both work for now.`);
+    }
+    return env[oldName];
+  }
+  return undefined;
+}
+
 export function isUpdateCheckEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const raw = env.REVERSE_MCP_UPDATE_CHECK;
+  const raw = readEnvWithFallback(env, "NETVEIN_UPDATE_CHECK", "REVERSE_MCP_UPDATE_CHECK");
   if (raw === undefined) return true;
   return !["0", "false", "off", "no"].includes(raw.trim().toLowerCase());
 }
 
 export function updateIntervalMs(env: NodeJS.ProcessEnv = process.env): number {
-  const hours = Number(env.REVERSE_MCP_UPDATE_INTERVAL_HOURS);
+  const hours = Number(readEnvWithFallback(env, "NETVEIN_UPDATE_INTERVAL_HOURS", "REVERSE_MCP_UPDATE_INTERVAL_HOURS"));
   if (!Number.isFinite(hours) || hours <= 0) return DEFAULT_INTERVAL_MS;
   return hours * 3600_000;
 }

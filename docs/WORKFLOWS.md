@@ -1,6 +1,6 @@
 # Reverse Engineering Playbooks & Workflows
 
-This document outlines proven, step-by-step procedures for common reverse engineering scenarios using `reverse-engineering-mcp`.
+This document outlines proven, step-by-step procedures for common reverse engineering scenarios using `netvein-mcp`.
 
 ---
 

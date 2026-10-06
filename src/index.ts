@@ -13,7 +13,7 @@ Reverse Engineering MCP Server v${VERSION}
 An advanced Chrome DevTools Protocol (CDP) server for web reverse engineering and dynamic analysis.
 
 Usage:
-  reverse-engineering-mcp [options]
+  netvein-mcp [options]
 
 Options:
   --host <string>     CDP endpoint host (default: 127.0.0.1 or CDP_HOST env)
@@ -25,8 +25,8 @@ Environment Variables:
   CDP_HOST            Chrome DevTools host (default: 127.0.0.1)
   CDP_PORT            Chrome DevTools port (default: 9222)
   LOG_LEVEL           Logging verbosity (debug, info, warn, error)
-  REVERSE_MCP_UPDATE_CHECK           Set to 0 to disable the start-up update check
-  REVERSE_MCP_UPDATE_INTERVAL_HOURS  Hours between checks (default: 24)
+  NETVEIN_UPDATE_CHECK           Set to 0 to disable the start-up update check
+  NETVEIN_UPDATE_INTERVAL_HOURS  Hours between checks (default: 24)
   `.trim());
 }
 
@@ -47,7 +47,7 @@ async function announceUpdateCheck(server: McpServer): Promise<void> {
     if (typeof host.server?.sendLoggingMessage === "function") {
       await host.server.sendLoggingMessage({ level: "info", logger: "update-check", data: message });
     } else {
-      console.error(`[reverse-engineering-mcp] ${message}`);
+      console.error(`[netvein-mcp] ${message}`);
     }
   } catch {
     // A failed check is never fatal and is never worth a line on stdout.
@@ -95,7 +95,7 @@ async function main(): Promise<void> {
   process.once("SIGTERM", shutdown);
   process.on("unhandledRejection", (reason) => {
     // Avoid crashing on uncaught CDP background socket disconnects
-    console.error("[reverse-engineering-mcp] Unhandled promise rejection:", reason);
+    console.error("[netvein-mcp] Unhandled promise rejection:", reason);
   });
 
   await server.connect(transport);
@@ -104,6 +104,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  console.error("[reverse-engineering-mcp] Fatal server error:", error);
+  console.error("[netvein-mcp] Fatal server error:", error);
   process.exit(1);
 });

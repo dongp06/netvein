@@ -1,12 +1,12 @@
-# Reverse Engineering MCP ⚡
+# Netvein-MCP ⚡
 
-> **The Definitive Chrome DevTools Protocol (CDP) Model Context Protocol Suite for Web Reverse Engineering, Dynamic Analysis, and Runtime Security Assessment.**
+> **The reverse engineer's browser MCP. Break request signatures, take apart bot defenses, and dissect systems you do not own — from a single, token-bounded CDP session.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-stdio%201.31-6E56CF)](https://modelcontextprotocol.io/)
 [![CDP](https://img.shields.io/badge/Chrome-CDP-4285F4?logo=googlechrome&logoColor=white)](https://chromedevtools.github.io/devtools-protocol/)
-[![Tests](https://img.shields.io/badge/Tests-128%2F128%20Passing-brightgreen)](test/index.test.ts)
+[![Tests](https://img.shields.io/badge/Tests-137%2F137%20Passing-brightgreen)](test/index.test.ts)
 [![Tools](https://img.shields.io/badge/Tools-102%20Available-orange)](#tool-catalog)
 
 ---
@@ -15,7 +15,7 @@
 
 Most AI browser integrations can only click buttons or scrape rendered DOM text. When dealing with modern single-page applications, minified bundles, obfuscated request signatures, bot defenses, or VM-protected JavaScript (JSVMP), traditional tools fail.
 
-**Reverse Engineering MCP** connects an AI agent directly to a real Chromium browser via a privileged, single-session Chrome DevTools Protocol (CDP) connection. It brings browser automation, source intelligence, multi-tier breakpoints, dynamic request tampering, cryptographic signature detection, AST candidate scoring, and JSRPC generation into **one unified, cohesive context**.
+**Netvein** connects an AI agent directly to a real Chromium browser via a privileged, single-session Chrome DevTools Protocol (CDP) connection. It brings browser automation, source intelligence, multi-tier breakpoints, dynamic request tampering, cryptographic signature detection, AST candidate scoring, and JSRPC generation into **one unified, cohesive context**.
 
 **🚀 Zero-Configuration Auto-Launch**: If Chromium (Chrome, Microsoft Edge, Brave) is not currently running on CDP port 9222, the server **automatically finds the installed browser executable and boots it in the background** with remote debugging enabled—no manual terminal commands required!
 
@@ -33,7 +33,7 @@ per-context proxy binding, and captcha detection. Captcha solving is out of scop
                                │ JSON-RPC (stdio transport)
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                 reverse-engineering-mcp                      │
+│                         netvein-mcp                         │
 │                                                             │
 │  ├── 102 Tools across 12 specialized domains                │
 │  ├── Auto-Browser Launcher (Chrome, Edge, Brave discovery)  │
@@ -88,7 +88,7 @@ per-context proxy binding, and captcha detection. Captcha solving is out of scop
 #### Manual Build
 ```bash
 npm install
-npm test       # Runs the 128 automated unit & smoke tests
+npm test       # Runs the 137 automated unit & smoke tests
 npm run build  # Compiles to dist/index.js
 ```
 
@@ -111,9 +111,9 @@ You **do not need to start Chrome manually**. Whenever you call `browser_targets
 ```json
 {
   "mcpServers": {
-    "reverse-engineering": {
+    "netvein-mcp": {
       "command": "node",
-      "args": ["D:\\MCP\\reverse-engineering-mcp\\dist\\index.js"],
+      "args": ["D:\\MCP\\netvein-mcp\\dist\\index.js"],
       "env": {
         "CDP_HOST": "127.0.0.1",
         "CDP_PORT": "9222"
@@ -125,11 +125,11 @@ You **do not need to start Chrome manually**. Whenever you call `browser_targets
 
 #### For Codex CLI (`~/.codex/config.toml`):
 ```toml
-[mcp_servers.reverse-engineering]
+[mcp_servers.netvein-mcp]
 command = "node"
-args = ["D:\\MCP\\reverse-engineering-mcp\\dist\\index.js"]
+args = ["D:\\MCP\\netvein-mcp\\dist\\index.js"]
 startup_timeout_sec = 60
-[mcp_servers.reverse-engineering.env]
+[mcp_servers.netvein-mcp.env]
 CDP_HOST = "127.0.0.1"
 CDP_PORT = "9222"
 ```
@@ -140,9 +140,9 @@ CDP_PORT = "9222"
 
 ### Live Resources
 MCP clients can read session state via URI without invoking tools:
-- `reverse://session/status`: Current target, connection state, paused callframes, and active breakpoint counts.
-- `reverse://session/console`: Real-time stream of captured console logs, warnings, and unhandled exceptions.
-- `reverse://session/timeline`: Chronological timeline of network events, debugger triggers, and runtime hooks.
+- `netvein://session/status`: Current target, connection state, paused callframes, and active breakpoint counts.
+- `netvein://session/console`: Real-time stream of captured console logs, warnings, and unhandled exceptions.
+- `netvein://session/timeline`: Chronological timeline of network events, debugger triggers, and runtime hooks.
 
 ### Interactive Prompts
 - `triage-target`: Automated initial reconnaissance runbook (navigates, checks bot defenses, inventories endpoints, inspects source maps).

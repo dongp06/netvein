@@ -439,7 +439,7 @@ export function makeHookSource(hookId: string, kind: HookRecord["kind"], include
 
   globalThis[flag] = restore;
 })();
-//# sourceURL=reverse-engineering-mcp-hook-${hookId}.js
+//# sourceURL=netvein-mcp-hook-${hookId}.js
 `;
 }
 
@@ -594,7 +594,7 @@ export function makeTaintSource(trackerId: string, label: string, tokens: string
   }
   globalThis[flag] = restore;
 })();
-//# sourceURL=reverse-engineering-mcp-taint-${trackerId}.js
+//# sourceURL=netvein-mcp-taint-${trackerId}.js
 `;
 }
 
@@ -1202,7 +1202,7 @@ export class CdpSession {
         operationId: `${method}_${path.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "root"}`,
         parameters: [],
         responses: {},
-        "x-reverse-engineering-requestIds": [],
+        "x-netvein-requestIds": [],
       };
       const parameterNames = new Set((operation.parameters ?? []).map((parameter: any) => parameter.name));
       for (const [name, value] of parsed.searchParams.entries()) {
@@ -1231,16 +1231,16 @@ export class CdpSession {
         }
         operation.responses[statusKey] = response;
       }
-      operation["x-reverse-engineering-requestIds"].push(record.requestId);
+      operation["x-netvein-requestIds"].push(record.requestId);
       paths[path] ??= {};
       paths[path][method] = operation;
     }
     return {
       openapi: "3.0.3",
-      info: { title: options.title ?? "Observed web API", version: "0.1.0", description: "Generated from captured browser traffic by reverse-engineering-mcp." },
+      info: { title: options.title ?? "Observed web API", version: "0.1.0", description: "Generated from captured browser traffic by netvein-mcp." },
       servers: [...origins].map((url) => ({ url })),
       paths,
-      "x-reverse-engineering": { observedRequests: this.networkRecords.size, examplesIncluded: examplesUsed },
+      "x-netvein": { observedRequests: this.networkRecords.size, examplesIncluded: examplesUsed },
     };
   }
 
@@ -1253,7 +1253,7 @@ export class CdpSession {
       userGesture: true,
       includeCommandLineAPI: true,
       replMode: true,
-      objectGroup: "reverse-engineering-mcp",
+      objectGroup: "netvein-mcp",
     });
     return this.formatEvaluationResult(result, options.expand ?? false);
   }
@@ -1377,7 +1377,7 @@ export class CdpSession {
       frames.push(mapped);
     }
     const isInstrumentationFrame = (frame: Record<string, unknown>): boolean =>
-      /reverse-engineering-mcp-(?:hook|taint)-/i.test(String(frame.url ?? ""));
+      /netvein-mcp-(?:hook|taint)-/i.test(String(frame.url ?? ""));
     const applicationFrames = frames.filter((frame) => !isInstrumentationFrame(frame));
     return {
       request: record,
@@ -1459,7 +1459,7 @@ export class CdpSession {
   async environmentDiff(includeCanvas = false, extraExpressions: Record<string, string> = {}): Promise<Record<string, unknown>> {
     const client = this.requireClient();
     const canvasExpression = includeCanvas
-      ? `(() => { try { const canvas = document.createElement("canvas"); canvas.width = 240; canvas.height = 80; const context = canvas.getContext("2d"); context.font = "16px Arial"; context.fillText("reverse-engineering-mcp", 3, 30); const value = canvas.toDataURL(); let hash = 2166136261; for (let i = 0; i < value.length; i++) { hash ^= value.charCodeAt(i); hash = Math.imul(hash, 16777619); } return (hash >>> 0).toString(16); } catch (_) { return null; } })()`
+      ? `(() => { try { const canvas = document.createElement("canvas"); canvas.width = 240; canvas.height = 80; const context = canvas.getContext("2d"); context.font = "16px Arial"; context.fillText("netvein-mcp", 3, 30); const value = canvas.toDataURL(); let hash = 2166136261; for (let i = 0; i < value.length; i++) { hash ^= value.charCodeAt(i); hash = Math.imul(hash, 16777619); } return (hash >>> 0).toString(16); } catch (_) { return null; } })()`
       : "null";
     const expression = `(async () => ({
       navigator: {
@@ -2363,7 +2363,7 @@ export class CdpSession {
     const har = {
       log: {
         version: "1.2",
-        creator: { name: "reverse-engineering-mcp", version: "0.2.0" },
+        creator: { name: "netvein-mcp", version: "0.4.0" },
         pages: [],
         entries,
       },

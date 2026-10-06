@@ -59,7 +59,7 @@ function envelopeTool<TArgs>(handler: (args: TArgs) => Promise<Envelope<unknown>
 export function createServer(session: CdpSession): McpServer {
   const server = new McpServer(
     {
-      name: "reverse-engineering-mcp",
+      name: "netvein-mcp",
       version: VERSION,
     },
     {
@@ -354,7 +354,7 @@ export function createServer(session: CdpSession): McpServer {
         return ok({
           status: "disabled",
           localVersion: VERSION,
-          detail: "Update checking is disabled by REVERSE_MCP_UPDATE_CHECK.",
+          detail: "Update checking is disabled by NETVEIN_UPDATE_CHECK.",
         });
       }
       return ok(await checkForUpdate(defaultUpdateDeps({ force: args.force ?? false })));

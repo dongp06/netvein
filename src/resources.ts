@@ -7,7 +7,7 @@ import type { CdpSession } from "./cdp.js";
 export function registerResources(server: McpServer, session: CdpSession): void {
   server.registerResource(
     "session-status",
-    "reverse://session/status",
+    "netvein://session/status",
     {
       description: "Current CDP connection status, attached page URL, pause state, and active counters.",
       mimeType: "application/json",
@@ -29,7 +29,7 @@ export function registerResources(server: McpServer, session: CdpSession): void 
 
   server.registerResource(
     "console-logs",
-    "reverse://session/console",
+    "netvein://session/console",
     {
       description: "Captured browser console messages, errors, warnings, and unhandled exceptions.",
       mimeType: "text/plain",
@@ -53,7 +53,7 @@ export function registerResources(server: McpServer, session: CdpSession): void 
 
   server.registerResource(
     "timeline-events",
-    "reverse://session/timeline",
+    "netvein://session/timeline",
     {
       description: "Chronological timeline of network requests, debugger pauses, and hook invocations.",
       mimeType: "application/json",

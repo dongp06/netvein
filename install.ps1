@@ -1,4 +1,4 @@
-# Automated Setup Script for reverse-engineering-mcp (Windows PowerShell)
+# Automated Setup Script for netvein-mcp (Windows PowerShell)
 $ErrorActionPreference = "Stop"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
@@ -86,6 +86,6 @@ CDP_PORT = "9222"
 Write-Host "`n==========================================================" -ForegroundColor Cyan
 Write-Host "   INSTALLATION COMPLETE!" -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "To use reverse-engineering-mcp, start Chrome or Edge with CDP enabled:"
+Write-Host "To use netvein-mcp, start Chrome or Edge with CDP enabled:"
 Write-Host "chrome.exe --remote-debugging-port=9222 --user-data-dir=`"$env:TEMP\chrome-cdp`"" -ForegroundColor Yellow
 Write-Host "`nThen connect to target tab via browser_targets -> browser_attach."

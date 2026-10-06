@@ -2,7 +2,7 @@
  * High-level server instructions emitted during MCP initialize handshake.
  * Guides AI agents on optimal workflows, tool sequencing, and anti-patterns for web reverse engineering.
  */
-export const SERVER_INSTRUCTIONS = `# Reverse Engineering MCP — Autonomous Browser & Web RE Suite
+export const SERVER_INSTRUCTIONS = `# Netvein MCP — Autonomous Browser & Web Reverse-Engineering Suite
 
 This MCP server provides a direct, privileged Chrome DevTools Protocol (CDP) session for interactive web reverse engineering, dynamic runtime instrumentation, crypto analysis, and bot protection bypassing.
 

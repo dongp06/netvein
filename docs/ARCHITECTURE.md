@@ -1,6 +1,6 @@
 # Technical Architecture & Design
 
-`reverse-engineering-mcp` is designed as a high-performance, single-session Chrome DevTools Protocol (CDP) bridge tailored specifically for AI-driven web reverse engineering.
+`netvein-mcp` is designed as a high-performance, single-session Chrome DevTools Protocol (CDP) bridge tailored specifically for AI-driven web reverse engineering.
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -10,7 +10,7 @@
                                │ JSON-RPC (stdio transport)
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                 reverse-engineering-mcp                      │
+│                 netvein-mcp                      │
 │                                                             │
 │   ┌─────────────────────┐       ┌──────────────────────┐    │
 │   │   McpServer Core    │       │    Server Prompts    │    │
@@ -40,7 +40,7 @@
 ## 1. Design Principles
 
 ### Single Coherent Session
-Most web reverse engineering workflows require shared context: setting a breakpoint on an event listener, clicking a button, intercepting the request, and inspecting the paused call frame. Unlike stateless headless browser wrappers, `reverse-engineering-mcp` connects to a single persistent tab, preserving state across all 87 tools.
+Most web reverse engineering workflows require shared context: setting a breakpoint on an event listener, clicking a button, intercepting the request, and inspecting the paused call frame. Unlike stateless headless browser wrappers, `netvein-mcp` connects to a single persistent tab, preserving state across all 87 tools.
 
 ### Bounded Memory & Token Safety
 Browser sessions generate massive amounts of data (tens of thousands of network frames, script files, and console logs). To prevent blowing up the LLM's context window:
@@ -53,7 +53,7 @@ Browser sessions generate massive amounts of data (tens of thousands of network 
 ## 2. Core Subsystems
 
 ### A. Dynamic Request Interception (`CDP Fetch Domain`)
-While `Network.enable` can only monitor traffic passively, `reverse-engineering-mcp` utilizes `Fetch.enable` and `Fetch.requestPaused` to allow dynamic request tampering:
+While `Network.enable` can only monitor traffic passively, `netvein-mcp` utilizes `Fetch.enable` and `Fetch.requestPaused` to allow dynamic request tampering:
 - **`block`**: Fails the request with `BlockedByClient`.
 - **`mock`**: Returns a custom synthetic status code, response headers, and base64 response body without touching the network.
 - **`modify`**: Dynamically overrides outgoing URL, HTTP method, headers, or POST payload on the fly.

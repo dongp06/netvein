@@ -863,7 +863,7 @@ def handle_action():
     payload = request.get_json(silent=True) or request.form.to_dict() or request.data.decode("utf-8", errors="ignore")
     
     # Forward or format for CDP/JSRPC
-    # When using reverse-engineering-mcp evaluate tool, evaluate in page:
+    # When using netvein-mcp evaluate tool, evaluate in page:
     # window.__JSRPC_ACTIONS__[action](payload)
     return jsonify({
         "status": "success",

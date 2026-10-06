@@ -1,6 +1,6 @@
 # Installation & Setup Guide
 
-`reverse-engineering-mcp` is a Model Context Protocol (MCP) server that provides AI coding assistants with deep, real-time control over a Chromium browser via the Chrome DevTools Protocol (CDP).
+`netvein-mcp` is a Model Context Protocol (MCP) server that provides AI coding assistants with deep, real-time control over a Chromium browser via the Chrome DevTools Protocol (CDP).
 
 ---
 
@@ -36,7 +36,7 @@ If you prefer building manually from source:
 
 ```bash
 # Clone and enter directory
-cd D:\MCP\reverse-engineering-mcp
+cd D:\MCP\netvein-mcp
 
 # Install dependencies
 npm install
@@ -93,7 +93,7 @@ Edit `~/.gemini/config/mcp_config.json`:
   "mcpServers": {
     "reverse-engineering": {
       "command": "node",
-      "args": ["D:\\MCP\\reverse-engineering-mcp\\dist\\index.js"],
+      "args": ["D:\\MCP\\netvein-mcp\\dist\\index.js"],
       "env": {
         "CDP_HOST": "127.0.0.1",
         "CDP_PORT": "9222"
@@ -109,7 +109,7 @@ Edit `~/.codex/config.toml`:
 ```toml
 [mcp_servers.reverse-engineering]
 command = "node"
-args = ["D:\\MCP\\reverse-engineering-mcp\\dist\\index.js"]
+args = ["D:\\MCP\\netvein-mcp\\dist\\index.js"]
 startup_timeout_sec = 60
 [mcp_servers.reverse-engineering.env]
 CDP_HOST = "127.0.0.1"
@@ -124,7 +124,7 @@ Edit `%APPDATA%\Claude\claude_desktop_config.json` (Windows) or `~/Library/Appli
   "mcpServers": {
     "reverse-engineering": {
       "command": "node",
-      "args": ["D:/MCP/reverse-engineering-mcp/dist/index.js"],
+      "args": ["D:/MCP/netvein-mcp/dist/index.js"],
       "env": {
         "CDP_HOST": "127.0.0.1",
         "CDP_PORT": "9222"
@@ -140,7 +140,7 @@ Add under MCP server settings:
 {
   "name": "reverse-engineering",
   "command": "node",
-  "args": ["D:/MCP/reverse-engineering-mcp/dist/index.js"],
+  "args": ["D:/MCP/netvein-mcp/dist/index.js"],
   "env": {
     "CDP_HOST": "127.0.0.1",
     "CDP_PORT": "9222"
