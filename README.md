@@ -4,7 +4,7 @@
 
 Already installed? Run `netvein install` to wire up new agents.
 
-Follow [@dongp06](https://github.com/dongp06) on GitHub for updates.
+[Website & Documentation](https://dongp06.github.io/netveiin) · Follow [@dongp06](https://github.com/dongp06) on GitHub for updates.
 
 ### Supercharge Claude Code, Cursor, Codex, OpenCode, Hermes Agent, Gemini, and Antigravity with Autonomous Web Reverse Engineering & Wire-Level Dynamic Instrumentation
 
