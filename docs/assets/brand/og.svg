@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" font-family="Lato, 'DejaVu Sans', sans-serif">
+  <defs>
+    <linearGradient id="veinOg" x1="0" y1="0" x2="240" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="filOg" x1="620" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.0"/>
+      <stop offset="0.5" stop-color="#67e8f9" stop-opacity="0.65"/>
+      <stop offset="1" stop-color="#8b5cf6" stop-opacity="0.9"/>
+    </linearGradient>
+    <radialGradient id="glowOg" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#164e63" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#164e63" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="#0a0f14"/>
+  <g stroke="#14202b" stroke-width="1">
+    <path d="M0 79H1200 M0 158H1200 M0 237H1200 M0 316H1200 M0 395H1200 M0 474H1200 M0 553H1200"/>
+    <path d="M75 0V630 M150 0V630 M225 0V630 M300 0V630 M375 0V630 M450 0V630 M525 0V630 M600 0V630 M675 0V630 M750 0V630 M825 0V630 M900 0V630 M975 0V630 M1050 0V630 M1125 0V630"/>
+  </g>
+
+  <!-- vein filaments fanning from the wordmark's terminal node to the right edge -->
+  <g fill="none" stroke="url(#filOg)" stroke-width="3" stroke-linecap="round">
+    <path d="M1096 284 C 1130 250, 1155 195, 1170 120"/>
+    <path d="M1096 284 C 1135 292, 1160 300, 1188 306"/>
+    <path d="M1096 284 C 1125 330, 1140 420, 1150 520"/>
+    <path d="M1140 205 C 1160 190, 1175 185, 1192 184" stroke-width="2"/>
+    <path d="M1136 400 C 1155 415, 1165 435, 1168 458" stroke-width="2"/>
+  </g>
+  <g>
+    <circle cx="1170" cy="120" r="7" fill="#67e8f9"/>
+    <circle cx="1188" cy="306" r="7" fill="#8b5cf6"/>
+    <circle cx="1150" cy="520" r="7" fill="#a78bfa"/>
+    <circle cx="1192" cy="184" r="4.5" fill="#22d3ee"/>
+    <circle cx="1168" cy="458" r="4.5" fill="#22d3ee"/>
+  </g>
+
+  <!-- icon -->
+  <g transform="translate(64,168) scale(0.582)">
+    <rect width="512" height="512" rx="96" fill="#0a0f14"/>
+    <circle cx="256" cy="256" r="240" fill="url(#glowOg)"/>
+    <path d="M132 388 L132 124 L380 388 L380 124" fill="none" stroke="url(#veinOg)" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M132 246 C 110 232, 90 216, 76 198" fill="none" stroke="#22d3ee" stroke-width="11" stroke-linecap="round" opacity="0.9"/>
+    <circle cx="68" cy="188" r="15" fill="#22d3ee"/>
+    <path d="M380 262 C 402 276, 422 292, 436 312" fill="none" stroke="#a78bfa" stroke-width="11" stroke-linecap="round" opacity="0.9"/>
+    <circle cx="444" cy="322" r="15" fill="#8b5cf6"/>
+    <path d="M256 256 C 262 222, 268 192, 276 166" fill="none" stroke="#67e8f9" stroke-width="9" stroke-linecap="round" opacity="0.8"/>
+    <circle cx="280" cy="152" r="10" fill="#67e8f9"/>
+  </g>
+
+  <!-- wordmark -->
+  <g transform="translate(380,246) scale(1.06)">
+    <g fill="none" stroke="#e8eef2" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M40 120 L40 40 L84 120 L84 40"/>
+      <path d="M156 40 L116 40 L116 120 L156 120 M116 80 L148 80"/>
+      <path d="M188 40 L232 40 M210 40 L210 120"/>
+      <path d="M264 40 L286 120 L308 40"/>
+      <path d="M380 40 L340 40 L340 120 L380 120 M340 80 L372 80"/>
+      <path d="M444 120 L444 40 L488 120 L488 40"/>
+    </g>
+    <path d="M412 52 L412 120" fill="none" stroke="#22d3ee" stroke-width="11" stroke-linecap="round"/>
+    <circle cx="412" cy="40" r="8" fill="#22d3ee"/>
+    <circle cx="412" cy="40" r="15" fill="none" stroke="#22d3ee" stroke-width="2.5" opacity="0.45"/>
+    <path d="M488 44 C 508 34, 528 30, 548 34" fill="none" stroke="#8b5cf6" stroke-width="7" stroke-linecap="round" opacity="0.85"/>
+    <circle cx="556" cy="36" r="9" fill="#8b5cf6"/>
+  </g>
+
+  <text x="384" y="448" font-size="25" font-weight="400" fill="#9fb0bd">The reverse engineer's browser MCP — dissect systems you do not own.</text>
+  <text x="384" y="486" font-size="20" fill="#5b6b7a">114 tools&#160;&#160;·&#160;&#160;CDP session + wire-level traffic daemon&#160;&#160;·&#160;&#160;token-bounded envelopes</text>
+</svg>

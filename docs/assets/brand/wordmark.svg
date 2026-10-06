@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 70" width="420" height="70">
+  <defs>
+    <linearGradient id="wmVein" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="50%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+  </defs>
+  <text x="0" y="54" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif" font-weight="900" font-size="58" letter-spacing="0.06em">
+    <tspan fill="#f8fafc">NET</tspan><tspan fill="url(#wmVein)">VEIN</tspan>
+  </text>
+</svg>

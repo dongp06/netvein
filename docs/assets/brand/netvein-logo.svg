@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 140" width="760" height="140">
+  <defs>
+    <!-- Background / Glow Gradients -->
+    <linearGradient id="logoBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#020617" stop-opacity="0.95"/>
+    </linearGradient>
+
+    <linearGradient id="logoBorder" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.5"/>
+      <stop offset="50%" stop-color="#818cf8" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#c084fc" stop-opacity="0.4"/>
+    </linearGradient>
+
+    <!-- Icon Glyph Gradients -->
+    <linearGradient id="leftBar" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+
+    <linearGradient id="diagBar" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="45%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#a855f7"/>
+    </linearGradient>
+
+    <linearGradient id="rightBar" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+
+    <!-- Text Gradient for VEIN -->
+    <linearGradient id="veinText" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="50%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+
+    <!-- Core Filament -->
+    <linearGradient id="glowFilament" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="50%" stop-color="#67e8f9"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+
+    <!-- Glow Filter -->
+    <filter id="auraGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Single Unified Glassmorphism Card (Dark & Light theme friendly) -->
+  <rect x="2" y="2" width="756" height="136" rx="28" fill="url(#logoBg)"/>
+  <rect x="2" y="2" width="756" height="136" rx="28" fill="none" stroke="url(#logoBorder)" stroke-width="1.5"/>
+
+  <!-- Left: Autonomous Brand Emblem (Squircle Badge) -->
+  <g transform="translate(24, 18)">
+    <!-- Badge Background -->
+    <rect width="104" height="104" rx="24" fill="#090d16" stroke="url(#logoBorder)" stroke-width="1.5"/>
+    
+    <!-- Emblem Glow -->
+    <circle cx="52" cy="52" r="36" fill="#0284c7" opacity="0.2" filter="url(#auraGlow)"/>
+
+    <!-- Vein Monogram N -->
+    <path d="M30 76 L30 28" fill="none" stroke="url(#leftBar)" stroke-width="10" stroke-linecap="round"/>
+    <path d="M30 28 L74 76" fill="none" stroke="url(#diagBar)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M74 76 L74 28" fill="none" stroke="url(#rightBar)" stroke-width="10" stroke-linecap="round"/>
+
+    <!-- Luminous Spine Core -->
+    <path d="M30 72 L30 32 L74 72 L74 32" fill="none" stroke="url(#glowFilament)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+
+    <!-- Circuit Junction Nodes -->
+    <circle cx="30" cy="28" r="3.5" fill="#ffffff"/>
+    <circle cx="52" cy="52" r="3" fill="#67e8f9"/>
+    <circle cx="74" cy="76" r="3.5" fill="#ffffff"/>
+  </g>
+
+  <!-- Circuit Trace Bridge from Icon to Typography -->
+  <g stroke="#334155" stroke-width="1" opacity="0.6">
+    <line x1="140" y1="70" x2="160" y2="70"/>
+    <circle cx="160" cy="70" r="2" fill="#38bdf8"/>
+  </g>
+
+  <!-- Center/Right: Brand Typography Lockup -->
+  <!-- Main Brand Title: NETVEIN -->
+  <text x="176" y="78" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif" font-weight="900" font-size="52" letter-spacing="0.06em">
+    <tspan fill="#f8fafc">NET</tspan><tspan fill="url(#veinText)">VEIN</tspan>
+  </text>
+
+  <!-- Version / Architecture Badge Pill -->
+  <g transform="translate(485, 42)">
+    <rect width="86" height="24" rx="12" fill="#1e1b4b" stroke="#6366f1" stroke-width="1"/>
+    <text x="43" y="16.5" font-family="system-ui, -apple-system, sans-serif" font-weight="700" font-size="11" fill="#a5b4fc" text-anchor="middle" letter-spacing="0.08em">v0.6.0</text>
+  </g>
+
+  <!-- Subtitle: Autonomous RE & Wire-Level Traffic Engine -->
+  <text x="178" y="106" font-family="'SF Mono', 'Segoe UI Mono', 'Roboto Mono', Menlo, monospace" font-weight="600" font-size="11" fill="#94a3b8" letter-spacing="0.24em">
+    AUTONOMOUS REVERSE ENGINEERING &amp; TRAFFIC ENGINE
+  </text>
+
+  <!-- Subtle Ambient Glow Accent on Right Rim -->
+  <circle cx="730" cy="70" r="40" fill="#a855f7" opacity="0.08" filter="url(#auraGlow)"/>
+</svg>
