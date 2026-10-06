@@ -1,31 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 70" width="420" height="70">
   <defs>
-    <linearGradient id="veinWm" x1="0" y1="40" x2="0" y2="120" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#22d3ee"/>
-      <stop offset="1" stop-color="#8b5cf6"/>
+    <linearGradient id="wmVein" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="50%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#c084fc"/>
     </linearGradient>
   </defs>
-  <rect width="640" height="160" rx="24" fill="#0a0f14"/>
-  <g fill="none" stroke="#e8eef2" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
-    <!-- N -->
-    <path d="M40 120 L40 40 L84 120 L84 40"/>
-    <!-- E -->
-    <path d="M156 40 L116 40 L116 120 L156 120 M116 80 L148 80"/>
-    <!-- T -->
-    <path d="M188 40 L232 40 M210 40 L210 120"/>
-    <!-- V -->
-    <path d="M264 40 L286 120 L308 40"/>
-    <!-- E -->
-    <path d="M380 40 L340 40 L340 120 L380 120 M340 80 L372 80"/>
-    <!-- N -->
-    <path d="M444 120 L444 40 L488 120 L488 40"/>
-  </g>
-  <!-- I: vertical circuit vein with node -->
-  <path d="M412 52 L412 120" fill="none" stroke="url(#veinWm)" stroke-width="11" stroke-linecap="round"/>
-  <circle cx="412" cy="40" r="8" fill="#22d3ee"/>
-  <circle cx="412" cy="40" r="15" fill="none" stroke="#22d3ee" stroke-width="2.5" opacity="0.45"/>
-  <!-- trailing vein branch off the last N -->
-  <path d="M488 44 C 508 34, 528 30, 548 34" fill="none" stroke="#8b5cf6" stroke-width="7" stroke-linecap="round" opacity="0.85"/>
-  <circle cx="556" cy="36" r="9" fill="#8b5cf6"/>
-  <circle cx="556" cy="36" r="17" fill="none" stroke="#8b5cf6" stroke-width="2.5" opacity="0.35"/>
+  <text x="0" y="54" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif" font-weight="900" font-size="58" letter-spacing="0.06em">
+    <tspan fill="#f8fafc">NET</tspan><tspan fill="url(#wmVein)">VEIN</tspan>
+  </text>
 </svg>

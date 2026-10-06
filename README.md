@@ -1,7 +1,6 @@
 <div align="center">
 
-<img src="assets/brand/icon.svg" width="96" alt="Netvein logo" />&nbsp;&nbsp;
-<img src="assets/brand/wordmark.svg" width="360" alt="NETVEIN" />
+<img src="assets/brand/netvein-logo.svg" width="620" alt="NetVein" />
 
 Already installed? Run `netvein install` to wire up new agents.
 
