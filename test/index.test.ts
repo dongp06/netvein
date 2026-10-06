@@ -18,6 +18,8 @@ import { createServer } from "../src/server.js";
 import { activePatchIds, buildStealthScript, createSeededPrng, seedFromName } from "../src/stealth.js";
 import { checkForUpdate, classifyUpdate, compareVersions, isCheckDue, parseVersion } from "../src/updater.js";
 import { beautifyBody, buildCurl, diffReplay, filterFlows, formatFlowList, stripHeaders, type FlowDetail, type FlowSummary } from "../src/mitm/store.js";
+import { buildProxyArgs, MitmError } from "../src/mitm/manager.js";
+import { envelopeFromThrow } from "../src/errors.js";
 
 test("Server & Tool Registration", async (t) => {
   await t.test("Initializes server with all tools, resources, and prompts", () => {
@@ -1122,5 +1124,41 @@ test("Traffic Store shaping II", async (t) => {
     const diff = diffReplay({ status: 200, body: JSON.stringify(a), headers: {} }, { status: 200, headers: {}, body: JSON.stringify(b) }, 10);
     assert.equal(diff.body!.changed.length, 10);
     assert.equal(diff.truncated, true);
+  });
+});
+
+test("Traffic Session Wiring", async (t) => {
+  await t.test("buildProxyArgs merges daemon endpoint into extra args", () => {
+    assert.deepEqual(buildProxyArgs(null, ["--headless"]), ["--headless"]);
+    assert.deepEqual(buildProxyArgs({ proxyPort: 8080, spki: "abc", attachBrowser: true }), [
+      "--proxy-server=127.0.0.1:8080",
+      "--ignore-certificate-errors-spki-list=abc",
+    ]);
+    assert.deepEqual(buildProxyArgs({ proxyPort: 8080, spki: null, attachBrowser: true }, ["-x"]), ["-x", "--proxy-server=127.0.0.1:8080"]);
+  });
+
+  await t.test("fresh session reports a stopped traffic daemon", async () => {
+    const session = new CdpSession();
+    const status = await session.trafficStatus();
+    assert.equal(status.state, "stopped");
+    assert.equal(status.endpoint, null);
+    assert.deepEqual(status.held, []);
+    assert.equal(status.stats, null);
+  });
+
+  await t.test("trafficStop on a fresh session is a no-op", async () => {
+    const session = new CdpSession();
+    assert.deepEqual(await session.trafficStop(), { stopped: true });
+  });
+
+  await t.test("envelopeFromThrow keeps registry codes and falls back", () => {
+    const fromMitm = envelopeFromThrow(new MitmError("ERR_MITM_PORT_BUSY", "127.0.0.1:8080 is already in use."), "ERR_NO_SESSION");
+    assert.equal(fromMitm.success, false);
+    assert.equal(fromMitm.error_code, "ERR_MITM_PORT_BUSY");
+    assert.equal(fromMitm.suggestion, DEFAULT_SUGGESTIONS.ERR_MITM_PORT_BUSY);
+    const plain = envelopeFromThrow(new Error("boom"), "ERR_NO_SESSION");
+    assert.equal(plain.error_code, "ERR_NO_SESSION");
+    const bogus = envelopeFromThrow({ code: "NOT_A_CODE", message: "x" }, "ERR_NO_SESSION");
+    assert.equal(bogus.error_code, "ERR_NO_SESSION");
   });
 });

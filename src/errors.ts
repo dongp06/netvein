@@ -83,3 +83,11 @@ export function toEnvelope(error: unknown, fallbackCode: ErrorCode): ErrEnvelope
   const message = error instanceof Error ? error.message : String(error);
   return err(fallbackCode, message, DEFAULT_SUGGESTIONS[fallbackCode]);
 }
+
+/** For throwers that carry their own registry code (e.g. MitmError) but are not ToolError. */
+export function envelopeFromThrow(error: unknown, fallback: ErrorCode): ErrEnvelope {
+  const raw = error as { code?: ErrorCode; suggestion?: string };
+  const code = raw?.code && raw.code in DEFAULT_SUGGESTIONS ? raw.code : fallback;
+  const message = error instanceof Error ? error.message : String(error);
+  return err(code, message, raw?.suggestion ?? DEFAULT_SUGGESTIONS[code]);
+}

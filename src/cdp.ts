@@ -1,6 +1,7 @@
 import CDP from "chrome-remote-interface";
 import { launchBrowser, type LaunchOptions, type LaunchResult } from "./launcher.js";
 import { ToolError, ok, toEnvelope, type Envelope } from "./errors.js";
+import { MitmManager, buildProxyArgs } from "./mitm/manager.js";
 import { activePatchIds, buildStealthScript, seedFromName, type StealthProfile } from "./stealth.js";
 import { compressAxTree, diffSnapshots, formatSemanticView, type SemanticSnapshot } from "./pruner.js";
 import {
@@ -631,6 +632,7 @@ export class CdpSession {
   private semanticVersionCounter = 0;
   private identities = new Map<string, IdentityRecord>();
   private captchaProvider: { provider: string; apiKey: string } | null = null;
+  readonly mitm = new MitmManager();
   private readonly hooks = new Map<string, HookRecord>();
   private readonly taintTrackers = new Map<string, TaintTrackerRecord>();
   private readonly bundleSnapshots = new Map<string, Map<string, BundleScriptSnapshot>>();
@@ -667,11 +669,37 @@ export class CdpSession {
   }
 
   async launchBrowser(options: LaunchOptions = {}): Promise<LaunchResult> {
+    const extraArgs = buildProxyArgs(this.mitm.endpoint(), options.extraArgs ?? []);
     return launchBrowser({
       host: this.options.host,
       port: this.options.port,
       ...options,
+      extraArgs,
     });
+  }
+
+  async trafficStart(options: { port?: number; caDir?: string; allowHosts?: string[]; attachBrowser?: boolean }): Promise<Record<string, unknown>> {
+    const started = await this.mitm.start(options);
+    const notes: string[] = [];
+    if (this.isConnected) {
+      notes.push("A browser is already attached without the proxy; relaunch via browser_launch to route it through netvein.");
+    }
+    return { ...started, notes };
+  }
+
+  async trafficStop(): Promise<Record<string, unknown>> {
+    await this.mitm.stop();
+    return { stopped: true };
+  }
+
+  async trafficStatus(): Promise<Record<string, unknown>> {
+    const held = await this.mitm.held().catch(() => []);
+    return {
+      state: this.mitm.state(),
+      endpoint: this.mitm.endpoint(),
+      held,
+      stats: this.mitm.lastStatsSnapshot(),
+    };
   }
 
   async connect(selector: TargetSelector = {}): Promise<TargetInfo> {

@@ -1,4 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
+import type { Readable } from "node:stream";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -32,6 +33,16 @@ function addonPath(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
   // dist/mitm/ and src/mitm/ both sit two levels under the repo root.
   return path.resolve(here, "..", "..", "python", "netvein_addon.py");
+}
+
+/** Chrome args that route a netvein-launched browser through the daemon. */
+export function buildProxyArgs(endpoint: Endpoint | null, extraArgs: string[] = []): string[] {
+  const args = [...extraArgs];
+  if (endpoint) {
+    args.push(`--proxy-server=127.0.0.1:${endpoint.proxyPort}`);
+    if (endpoint.spki) args.push(`--ignore-certificate-errors-spki-list=${endpoint.spki}`);
+  }
+  return args;
 }
 
 /** PATH lookup without a dependency: scan PATH like `which`. */
@@ -81,7 +92,7 @@ function mapDaemonError(text: string): ErrorCode {
 }
 
 export class MitmManager {
-  private proc: ChildProcessWithoutNullStreams | null = null;
+  private proc: ChildProcessByStdio<null, Readable, Readable> | null = null;
   private ctlSocket: net.Socket | null = null;
   private pending = new Map<number, { resolve: (v: Record<string, unknown>) => void; reject: (e: Error) => void }>();
   private nextId = 1;
